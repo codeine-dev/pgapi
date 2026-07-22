@@ -1,0 +1,28 @@
+{
+  "name": "pgapi",
+  "version": "0.1.0",
+  "module": "src/index.ts",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "bun run --watch src/index.ts",
+    "start": "bun run src/index.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/pg": "^8.20.0",
+    "vitest": "^4.1.10"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "fp-ts": "^2.16.11",
+    "graphql": "^17.0.2",
+    "io-ts": "^2.2.22",
+    "pg": "^8.22.0"
+  }
+}
