@@ -17,12 +17,16 @@
 - [x] Unit tests for CLI (5 tests, all passing)
 - [x] Typecheck passing
 
-## Phase 2: Schema Reading
+## Phase 2: Schema Reading (complete)
 
-- [ ] Read tables, columns, types, constraints
-- [ ] Read foreign key relationships
-- [ ] Handle schemas beyond public
-- [ ] Build internal model from Postgres catalog
+- [x] Read tables, columns, types, constraints
+- [x] Read foreign key relationships (with schema qualifiers)
+- [x] Handle schemas beyond public (--schema flag, repeatable)
+- [x] Build internal model from Postgres catalog
+- [x] Read enum types from pg_type/pg_enum
+- [x] Column defaults and unique constraints
+- [x] Array column detection
+- [x] 12 tests passing, typecheck clean
 
 ## Phase 3: GraphQL Generation
 

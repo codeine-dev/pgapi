@@ -6,6 +6,7 @@ export interface CliArgs {
   port: number;
   host: string;
   console: boolean;
+  schemas: string[];
 }
 
 export const parseArgs = (args: string[]): E.Either<string, CliArgs> => {
@@ -14,6 +15,7 @@ export const parseArgs = (args: string[]): E.Either<string, CliArgs> => {
     port: 3000,
     host: "127.0.0.1",
     console: false,
+    schemas: [],
   };
 
   for (let i = 2; i < args.length; i++) {
@@ -47,6 +49,14 @@ export const parseArgs = (args: string[]): E.Either<string, CliArgs> => {
       case "--console":
         result.console = true;
         break;
+      case "--schema": {
+        i++;
+        if (i >= args.length) return E.left("--schema requires a value");
+        const schemaVal = args[i];
+        if (schemaVal === undefined) return E.left("--schema requires a value");
+        result.schemas.push(schemaVal);
+        break;
+      }
       default:
         return E.left(`Unknown argument: ${args[i]}`);
     }

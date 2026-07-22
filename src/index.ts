@@ -14,7 +14,7 @@ const run = (): TE.TaskEither<Error, void> => {
   console.log("---");
 
   return pipe(
-    readSchema({ connectionString: args.connectionString }),
+    readSchema({ connectionString: args.connectionString }, args.schemas),
     TE.map((schemaModel) => buildSchema(schemaModel)),
     TE.chain((graphqlSchema) =>
       startServer({
