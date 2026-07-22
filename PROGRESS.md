@@ -67,11 +67,11 @@
 
 ### Auth Middleware
 
-- [ ] JWT verification middleware (configurable via --jwt-secret)
-- [ ] API key header validation (configurable via --api-key-header)
-- [ ] Optional auth mode (--auth optional/required)
-- [ ] Pass auth context to resolvers (user/sub claims)
-- [ ] Tests for auth middleware (valid/invalid tokens, missing auth)
+- [x] JWT verification middleware (configurable via --jwt-secret)
+- [x] API key header validation (configurable via --api-key-header)
+- [x] Optional auth mode (--auth optional/required)
+- [x] Pass auth context to resolvers (user/sub claims)
+- [x] Tests for auth middleware (valid/invalid tokens, missing auth)
 
 ### Integration Tests
 
