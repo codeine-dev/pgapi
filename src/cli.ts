@@ -12,6 +12,9 @@ export const parseArgs = (args: string[]): E.Either<string, CliArgs> => {
     host: "127.0.0.1",
     console: false,
     schemas: [],
+    jwtSecret: undefined,
+    apiKeyHeader: undefined,
+    authMode: "none",
   };
 
   for (let i = 2; i < args.length; i++) {
@@ -51,6 +54,34 @@ export const parseArgs = (args: string[]): E.Either<string, CliArgs> => {
         const schemaVal = args[i];
         if (schemaVal === undefined) return E.left("--schema requires a value");
         (raw.schemas as string[]).push(schemaVal);
+        break;
+      }
+      case "--jwt-secret": {
+        i++;
+        if (i >= args.length) return E.left("--jwt-secret requires a value");
+        const jwtVal = args[i];
+        if (jwtVal === undefined) return E.left("--jwt-secret requires a value");
+        raw.jwtSecret = jwtVal;
+        raw.authMode = "required";
+        break;
+      }
+      case "--api-key-header": {
+        i++;
+        if (i >= args.length) return E.left("--api-key-header requires a value");
+        const apiKeyVal = args[i];
+        if (apiKeyVal === undefined) return E.left("--api-key-header requires a value");
+        raw.apiKeyHeader = apiKeyVal;
+        raw.authMode = "required";
+        break;
+      }
+      case "--auth": {
+        i++;
+        if (i >= args.length) return E.left("--auth requires a value");
+        const authVal = args[i];
+        if (authVal !== "none" && authVal !== "optional" && authVal !== "required") {
+          return E.left("--auth must be none, optional, or required");
+        }
+        raw.authMode = authVal;
         break;
       }
       default:

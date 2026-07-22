@@ -15,6 +15,9 @@ describe("CliArgsCodec", () => {
       host: "127.0.0.1",
       console: true,
       schemas: ["public"],
+      jwtSecret: undefined,
+      apiKeyHeader: undefined,
+      authMode: "none",
     };
     const result = CliArgsCodec.validate(valid, []);
     expect(isRight(result)).toBe(true);

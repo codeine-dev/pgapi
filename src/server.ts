@@ -3,10 +3,12 @@ import { createServer, IncomingMessage, ServerResponse } from "http";
 import { readFileSync } from "fs";
 import { join } from "path";
 import * as TE from "fp-ts/TaskEither";
+import * as E from "fp-ts/Either";
 import * as O from "fp-ts/Option";
 import { pipe } from "fp-ts/function";
 import type { ResolverContext } from "./resolver";
 import { log, logRequest } from "./logger";
+import { authenticate, formatAuthError, type AuthConfig, type AuthContext } from "./auth";
 
 export interface ServerEnv {
   host: string;
@@ -14,6 +16,7 @@ export interface ServerEnv {
   schema: GraphQLSchema;
   enableConsole: boolean;
   resolverContext: ResolverContext;
+  authConfig: AuthConfig;
 }
 
 type RequestError =
@@ -58,23 +61,42 @@ const parseQueryParams = (url: string): { query?: string; variables?: Record<str
   return { query, variables };
 };
 
-const executeGraphql = (env: ServerEnv) => (parsed: { query?: string; variables?: Record<string, unknown> }): TE.TaskEither<RequestError, unknown> =>
+const executeGraphql = (env: ServerEnv, authContext: AuthContext) => (parsed: { query?: string; variables?: Record<string, unknown> }): TE.TaskEither<RequestError, unknown> =>
   TE.tryCatch(
     () =>
       graphql({
         schema: env.schema,
         source: parsed.query ?? "",
         variableValues: parsed.variables,
-        contextValue: env.resolverContext,
+        contextValue: { ...env.resolverContext, auth: authContext },
       }),
     (e) => ({ _tag: "GraphqlError" as const, message: String(e) })
   );
 
+const extractHeaders = (req: IncomingMessage): Record<string, string | undefined> => {
+  const headers: Record<string, string | undefined> = {};
+  for (const [key, value] of Object.entries(req.headers)) {
+    headers[key] = Array.isArray(value) ? value[0] : value;
+  }
+  return headers;
+};
+
 const handleGraphqlPost = (env: ServerEnv, req: IncomingMessage, res: ServerResponse): void => {
+  const headers = extractHeaders(req);
+  const authResult = authenticate(env.authConfig, headers);
+
+  if (E.isLeft(authResult)) {
+    res.writeHead(401, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: formatAuthError(authResult.left) }));
+    return;
+  }
+
+  const authContext = authResult.right;
+
   pipe(
     readBody(req),
     TE.chain(parseJson),
-    TE.chain(executeGraphql(env)),
+    TE.chain(executeGraphql(env, authContext)),
     TE.match(
       (error) => {
         res.writeHead(400, { "Content-Type": "application/json" });
@@ -98,8 +120,19 @@ const handleGraphqlGet = (env: ServerEnv, req: IncomingMessage, res: ServerRespo
     return;
   }
 
+  const headers = extractHeaders(req);
+  const authResult = authenticate(env.authConfig, headers);
+
+  if (E.isLeft(authResult)) {
+    res.writeHead(401, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: formatAuthError(authResult.left) }));
+    return;
+  }
+
+  const authContext = authResult.right;
+
   pipe(
-    executeGraphql(env)(parsed),
+    executeGraphql(env, authContext)(parsed),
     TE.match(
       (error) => {
         res.writeHead(400, { "Content-Type": "application/json" });

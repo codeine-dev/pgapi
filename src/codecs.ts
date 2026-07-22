@@ -6,6 +6,9 @@ export const CliArgsCodec = t.type({
   host: t.string,
   console: t.boolean,
   schemas: t.array(t.string),
+  jwtSecret: t.union([t.string, t.undefined]),
+  apiKeyHeader: t.union([t.string, t.undefined]),
+  authMode: t.union([t.literal("none"), t.literal("optional"), t.literal("required")]),
 });
 
 export type CliArgs = t.TypeOf<typeof CliArgsCodec>;

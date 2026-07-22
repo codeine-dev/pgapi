@@ -9,6 +9,7 @@ import { startServer } from "./server";
 import { createClient } from "./db";
 import { log, setLogLevel } from "./logger";
 import type { SchemaModel } from "./schema";
+import type { AuthConfig } from "./auth";
 
 const run = (): TE.TaskEither<Error, void> => {
   setLogLevel("info");
@@ -20,6 +21,11 @@ const run = (): TE.TaskEither<Error, void> => {
     )),
     TE.chain((args) => {
       const dbEnv = { connectionString: args.connectionString };
+      const authConfig: AuthConfig = {
+        jwtSecret: args.jwtSecret,
+        apiKeyHeader: args.apiKeyHeader,
+        authMode: args.authMode,
+      };
       log.info("pgapi - Postgres GraphQL API");
 
       let client: Client | undefined;
@@ -36,7 +42,8 @@ const run = (): TE.TaskEither<Error, void> => {
             port: args.port,
             schema: graphqlSchema,
             enableConsole: args.console,
-            resolverContext: { client: c, model: schemaModel },
+            resolverContext: { client: c, model: schemaModel, auth: { isAuthenticated: false } },
+            authConfig,
           });
         }),
         TE.orElse((error): TE.TaskEither<Error, void> =>
