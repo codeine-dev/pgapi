@@ -3,12 +3,14 @@ import { createServer, IncomingMessage, ServerResponse } from "http";
 import * as TE from "fp-ts/TaskEither";
 import * as O from "fp-ts/Option";
 import { pipe } from "fp-ts/function";
+import type { ResolverContext } from "./resolver";
 
 export interface ServerEnv {
   host: string;
   port: number;
   schema: GraphQLSchema;
   enableConsole: boolean;
+  resolverContext: ResolverContext;
 }
 
 type RequestError =
@@ -40,6 +42,7 @@ const executeGraphql = (env: ServerEnv) => (parsed: { query?: string; variables?
         schema: env.schema,
         source: parsed.query ?? "",
         variableValues: parsed.variables,
+        contextValue: env.resolverContext,
       }),
     (e) => ({ _tag: "GraphqlError" as const, message: String(e) })
   );

@@ -28,13 +28,19 @@
 - [x] Array column detection
 - [x] 12 tests passing, typecheck clean
 
-## Phase 3: GraphQL Generation
+## Phase 3: GraphQL Generation (complete)
 
-- [ ] Map Postgres types to GraphQL scalar types
-- [ ] Generate query types for each table
-- [ ] Generate mutation types (insert, update, delete)
-- [ ] Resolve relationships as nested types
-- [ ] Implement resolvers
+- [x] Map Postgres types to GraphQL scalar types
+- [x] Generate query types for each table (list + byPk)
+- [x] Generate mutation types (insert, update, delete)
+- [x] Resolve relationships as nested types (FK fields)
+- [x] Implement resolvers (list, byPk, insert, update, delete, FK)
+- [x] SQL query builder with parameterized queries
+- [x] Where input types per table (eq, neq, gt, gte, lt, lte, like, in)
+- [x] OrderBy input types per table
+- [x] InsertInput / UpdateInput per table (skips PK columns)
+- [x] ResolverContext with persistent DB client + model
+- [x] 34 tests passing, typecheck clean
 
 ## Phase 4: Server & Console
 

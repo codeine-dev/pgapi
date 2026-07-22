@@ -23,3 +23,15 @@ export const withClient = <A>(
       (e) => (e instanceof Error ? e : new Error(String(e)))
     )
   );
+
+export const createClient = (
+  env: DbEnv
+): TE.TaskEither<Error, Client> =>
+  TE.tryCatch(
+    async () => {
+      const client = new Client({ connectionString: env.connectionString });
+      await client.connect();
+      return client;
+    },
+    (e) => (e instanceof Error ? e : new Error(String(e)))
+  );
