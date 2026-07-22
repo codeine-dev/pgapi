@@ -54,3 +54,43 @@
 - [x] Single executable build (bun build --compile)
 - [x] Dockerfile (multi-stage: build with bun, runtime on debian-slim)
 - [x] 34 tests passing, typecheck clean
+
+## Phase 5: Stretch Goals (in progress)
+
+### io-ts Runtime Validation
+
+- [ ] Define io-ts codecs for CLI arguments (connection-string, port, host, console, schema)
+- [ ] Define io-ts codecs for wire types (WhereInput, OrderByInput, InsertInput, UpdateInput)
+- [ ] Replace manual type assertions with io-ts validation
+- [ ] Add validation error handling with structured error messages
+- [ ] Tests for codec validation (valid/invalid inputs)
+
+### Auth Middleware
+
+- [ ] JWT verification middleware (configurable via --jwt-secret)
+- [ ] API key header validation (configurable via --api-key-header)
+- [ ] Optional auth mode (--auth optional/required)
+- [ ] Pass auth context to resolvers (user/sub claims)
+- [ ] Tests for auth middleware (valid/invalid tokens, missing auth)
+
+### Integration Tests
+
+- [ ] Set up test database with schema fixtures
+- [ ] CRUD operation tests (create, read, update, delete)
+- [ ] Relationship resolution tests (FK nested queries)
+- [ ] Where clause operator tests (eq, neq, gt, lt, like, in)
+- [ ] OrderBy and pagination tests
+- [ ] View query tests
+- [ ] Auth middleware integration tests
+- [ ] Error handling tests (invalid input, missing required fields)
+
+- [x] HTTP server with graphql endpoint
+- [x] GraphiQL console at /console
+- [x] Error handling & logging
+- [x] Structured logging with levels (debug, info, warn, error)
+- [x] Request logging (method, path, status, duration)
+- [x] Graceful shutdown (SIGTERM/SIGINT, DB client cleanup)
+- [x] GET /graphql support for queries
+- [x] Single executable build (bun build --compile)
+- [x] Dockerfile (multi-stage: build with bun, runtime on debian-slim)
+- [x] 34 tests passing, typecheck clean
