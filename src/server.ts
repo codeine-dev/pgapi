@@ -1,5 +1,7 @@
 import { GraphQLSchema, graphql } from "graphql";
 import { createServer, IncomingMessage, ServerResponse } from "http";
+import { readFileSync } from "fs";
+import { join } from "path";
 import * as TE from "fp-ts/TaskEither";
 import * as O from "fp-ts/Option";
 import { pipe } from "fp-ts/function";
@@ -111,17 +113,46 @@ const handleGraphqlGet = (env: ServerEnv, req: IncomingMessage, res: ServerRespo
   )();
 };
 
+const nmDir = join(import.meta.dir, "..", "node_modules");
+
+const staticFiles: Record<string, { content: Buffer; contentType: string }> = {
+  "/_static/react.js": {
+    content: readFileSync(join(nmDir, "react", "umd", "react.production.min.js")),
+    contentType: "application/javascript",
+  },
+  "/_static/react-dom.js": {
+    content: readFileSync(join(nmDir, "react-dom", "umd", "react-dom.production.min.js")),
+    contentType: "application/javascript",
+  },
+  "/_static/graphiql.js": {
+    content: readFileSync(join(nmDir, "graphiql", "graphiql.min.js")),
+    contentType: "application/javascript",
+  },
+  "/_static/graphiql.css": {
+    content: readFileSync(join(nmDir, "graphiql", "graphiql.min.css")),
+    contentType: "text/css",
+  },
+};
+
+const handleStaticRequest = (res: ServerResponse, path: string): boolean => {
+  const file = staticFiles[path];
+  if (!file) return false;
+  res.writeHead(200, { "Content-Type": file.contentType });
+  res.end(file.content);
+  return true;
+};
+
 const handleConsoleRequest = (res: ServerResponse): void => {
-  res.writeHead(200, { "Content-Type": "text/html" });
+  res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
   res.end(`<!DOCTYPE html>
 <html>
 <head><title>GraphiQL</title>
-<link href="https://unpkg.com/graphiql/graphiql.min.css" rel="stylesheet" />
+<link rel="stylesheet" href="/_static/graphiql.css" />
 </head>
 <body style="margin:0"><div id="graphiql" style="height:100vh;"></div>
-<script crossorigin src="https://unpkg.com/react/umd/react.production.min.js"></script>
-<script crossorigin src="https://unpkg.com/react-dom/umd/react-dom.production.min.js"></script>
-<script crossorigin src="https://unpkg.com/graphiql/graphiql.min.js"></script>
+<script src="/_static/react.js"></script>
+<script src="/_static/react-dom.js"></script>
+<script src="/_static/graphiql.js"></script>
 <script>
 const fetcher = GraphiQL.createFetcher({ url: '/graphql' });
 ReactDOM.render(React.createElement(GraphiQL, { fetcher }), document.getElementById('graphiql'));
@@ -146,6 +177,11 @@ const handleRequest = (env: ServerEnv) => (req: IncomingMessage, res: ServerResp
     handleGraphqlGet(env, req, res);
   } else if (path === "/console" && env.enableConsole) {
     handleConsoleRequest(res);
+  } else if (path.startsWith("/_static/")) {
+    if (!handleStaticRequest(res, path)) {
+      res.writeHead(404, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Not found" }));
+    }
   } else {
     res.writeHead(404, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ error: "Not found" }));
