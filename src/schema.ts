@@ -18,12 +18,15 @@ export interface Column {
   defaultValue: string | null;
   enumValues: EnumValue[] | null;
   arrayElementType: string | null;
+  description: string | null;
 }
 
 export interface Table {
   schema: string;
   name: string;
   columns: Column[];
+  type: "table" | "view" | "materialized_view";
+  description: string | null;
 }
 
 export interface ForeignKey {
@@ -37,6 +40,7 @@ export interface ForeignKey {
 
 export interface SchemaModel {
   tables: Table[];
+  views: Table[];
   foreignKeys: ForeignKey[];
   enums: Record<string, EnumValue[]>;
 }
@@ -68,6 +72,76 @@ const readEnums = withClient(async (client) => {
   }
   return enums;
 });
+
+const readColumnDescriptions = (schemas: string[]) =>
+  withClient(async (client) => {
+    const schemaFilter =
+      schemas.length > 0
+        ? `AND n.nspname = ANY($1)`
+        : `AND n.nspname NOT IN ('pg_catalog', 'information_schema')`;
+    const params = schemas.length > 0 ? [schemas] : [];
+
+    const result = await client.query(
+      `
+      SELECT 
+        n.nspname as schema_name,
+        c.relname as table_name,
+        a.attname as column_name,
+        pg_description.description as description
+      FROM pg_description
+      JOIN pg_class c ON pg_description.objoid = c.oid
+      JOIN pg_namespace n ON c.relnamespace = n.oid
+      JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum = pg_description.objsubid
+      WHERE c.relkind IN ('r', 'v', 'm')
+        AND pg_description.objsubid > 0
+        ${schemaFilter}
+      ORDER BY n.nspname, c.relname, a.attnum
+    `,
+      params
+    );
+
+    const descriptions: Record<string, string> = {};
+    for (const row of result.rows) {
+      if (row.description) {
+        descriptions[`${row.schema_name}.${row.table_name}.${row.column_name}`] = row.description;
+      }
+    }
+    return descriptions;
+  });
+
+const readTableDescriptions = (schemas: string[]) =>
+  withClient(async (client) => {
+    const schemaFilter =
+      schemas.length > 0
+        ? `AND n.nspname = ANY($1)`
+        : `AND n.nspname NOT IN ('pg_catalog', 'information_schema')`;
+    const params = schemas.length > 0 ? [schemas] : [];
+
+    const result = await client.query(
+      `
+      SELECT 
+        n.nspname as schema_name,
+        c.relname as table_name,
+        pg_description.description as description
+      FROM pg_description
+      JOIN pg_class c ON pg_description.objoid = c.oid
+      JOIN pg_namespace n ON c.relnamespace = n.oid
+      WHERE c.relkind IN ('r', 'v', 'm')
+        AND pg_description.objsubid = 0
+        ${schemaFilter}
+      ORDER BY n.nspname, c.relname
+    `,
+      params
+    );
+
+    const descriptions: Record<string, string> = {};
+    for (const row of result.rows) {
+      if (row.description) {
+        descriptions[`${row.schema_name}.${row.table_name}`] = row.description;
+      }
+    }
+    return descriptions;
+  });
 
 const readTables = (schemas: string[]) =>
   withClient(async (client) => {
@@ -126,14 +200,14 @@ const readTables = (schemas: string[]) =>
       params
     );
 
-    const tables: Record<string, { schema: string; name: string; columns: Column[] }> = {};
+    const tables: Record<string, { schema: string; name: string; columns: Column[]; type: "table"; description: string | null }> = {};
 
     for (const row of result.rows) {
       const key = `${row.table_schema}.${row.table_name}`;
       const table = pipe(
         O.fromNullable(tables[key]),
         O.getOrElse(() => {
-          const fresh = { schema: row.table_schema, name: row.table_name, columns: [] as Column[] };
+          const fresh = { schema: row.table_schema, name: row.table_name, columns: [] as Column[], type: "table" as const, description: null as string | null };
           tables[key] = fresh;
           return fresh;
         })
@@ -151,6 +225,7 @@ const readTables = (schemas: string[]) =>
         defaultValue: row.default_value,
         enumValues: null,
         arrayElementType: arrayElement,
+        description: null,
       });
     }
 
@@ -197,6 +272,80 @@ const readForeignKeys = (schemas: string[]) =>
     }));
   });
 
+const readViews = (schemas: string[]) =>
+  withClient(async (client) => {
+    const schemaFilter =
+      schemas.length > 0
+        ? `AND v.table_schema = ANY($1)`
+        : `AND v.table_schema NOT IN ('pg_catalog', 'information_schema')`;
+    const params = schemas.length > 0 ? [schemas] : [];
+
+    const result = await client.query(
+      `
+      SELECT 
+        v.table_schema,
+        v.table_name,
+        v.view_definition,
+        CASE 
+          WHEN v.view_definition ILIKE '%materialized%' THEN 'materialized_view'
+          ELSE 'view'
+        END as view_type,
+        c.column_name,
+        c.udt_name as type,
+        c.is_nullable = 'YES' as nullable,
+        c.column_default as default_value,
+        CASE 
+          WHEN c.udt_name LIKE '_%' THEN pg_catalog.format_type(
+            (SELECT atttypid FROM pg_attribute WHERE attrelid = (
+              SELECT oid FROM pg_class WHERE relname = v.table_name 
+              AND relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = v.table_schema)
+            ) AND attname = c.column_name), NULL
+          )
+          ELSE NULL
+        END as array_element_type
+      FROM information_schema.views v
+      JOIN information_schema.columns c 
+        ON v.table_schema = c.table_schema 
+        AND v.table_name = c.table_name
+      WHERE 1=1
+        ${schemaFilter}
+      ORDER BY v.table_schema, v.table_name, c.ordinal_position
+    `,
+      params
+    );
+
+    const views: Record<string, { schema: string; name: string; columns: Column[]; type: "view" | "materialized_view"; description: string | null }> = {};
+
+    for (const row of result.rows) {
+      const key = `${row.table_schema}.${row.table_name}`;
+      const view = pipe(
+        O.fromNullable(views[key]),
+        O.getOrElse(() => {
+          const fresh = { schema: row.table_schema, name: row.table_name, columns: [] as Column[], type: row.view_type as "view" | "materialized_view", description: null as string | null };
+          views[key] = fresh;
+          return fresh;
+        })
+      );
+
+      const isEnumType = row.type.startsWith("_");
+      const arrayElement = isEnumType ? row.type.slice(1) : null;
+
+      view.columns.push({
+        name: row.column_name,
+        type: row.type,
+        nullable: row.nullable,
+        isPrimaryKey: false, // Views don't have primary keys
+        isUnique: false,
+        defaultValue: row.default_value,
+        enumValues: null,
+        arrayElementType: arrayElement,
+        description: null,
+      });
+    }
+
+    return Object.values(views);
+  });
+
 const attachEnumValues = (tables: Table[], enums: Record<string, EnumValue[]>): Table[] =>
   tables.map((table) => ({
     ...table,
@@ -215,9 +364,27 @@ export const readSchema = (
     TE.Do,
     TE.bind("enums", () => readEnums(env)),
     TE.bind("tables", () => readTables(schemas)(env)),
+    TE.bind("views", () => readViews(schemas)(env)),
     TE.bind("foreignKeys", () => readForeignKeys(schemas)(env)),
-    TE.map(({ tables, foreignKeys, enums }) => ({
-      tables: attachEnumValues(tables, enums),
+    TE.bind("tableDescriptions", () => readTableDescriptions(schemas)(env)),
+    TE.bind("columnDescriptions", () => readColumnDescriptions(schemas)(env)),
+    TE.map(({ tables, views, foreignKeys, enums, tableDescriptions, columnDescriptions }) => ({
+      tables: attachEnumValues(tables, enums).map((t) => ({
+        ...t,
+        description: tableDescriptions[`${t.schema}.${t.name}`] ?? null,
+        columns: t.columns.map((c) => ({
+          ...c,
+          description: columnDescriptions[`${t.schema}.${t.name}.${c.name}`] ?? null,
+        })),
+      })),
+      views: attachEnumValues(views, enums).map((v) => ({
+        ...v,
+        description: tableDescriptions[`${v.schema}.${v.name}`] ?? null,
+        columns: v.columns.map((c) => ({
+          ...c,
+          description: columnDescriptions[`${v.schema}.${v.name}.${c.name}`] ?? null,
+        })),
+      })),
       foreignKeys,
       enums,
     }))

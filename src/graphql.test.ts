@@ -9,12 +9,15 @@ describe("buildSchema", () => {
         {
           schema: "public",
           name: "users",
+          type: "table",
+          description: null,
           columns: [
-            { name: "id", type: "int4", nullable: false, isPrimaryKey: true, isUnique: false, defaultValue: null, enumValues: null, arrayElementType: null },
-            { name: "name", type: "text", nullable: false, isPrimaryKey: false, isUnique: false, defaultValue: null, enumValues: null, arrayElementType: null },
+            { name: "id", type: "int4", nullable: false, isPrimaryKey: true, isUnique: false, defaultValue: null, enumValues: null, arrayElementType: null, description: null },
+            { name: "name", type: "text", nullable: false, isPrimaryKey: false, isUnique: false, defaultValue: null, enumValues: null, arrayElementType: null, description: null },
           ],
         },
       ],
+      views: [],
       foreignKeys: [],
       enums: {},
     };
@@ -33,8 +36,10 @@ describe("buildSchema", () => {
         {
           schema: "public",
           name: "orders",
+          type: "table",
+          description: null,
           columns: [
-            { name: "id", type: "int4", nullable: false, isPrimaryKey: true, isUnique: false, defaultValue: null, enumValues: null, arrayElementType: null },
+            { name: "id", type: "int4", nullable: false, isPrimaryKey: true, isUnique: false, defaultValue: null, enumValues: null, arrayElementType: null, description: null },
             {
               name: "status",
               type: "order_status",
@@ -48,10 +53,12 @@ describe("buildSchema", () => {
                 { label: "delivered", value: "delivered" },
               ],
               arrayElementType: null,
+              description: null,
             },
           ],
         },
       ],
+      views: [],
       foreignKeys: [],
       enums: {
         order_status: [
@@ -72,12 +79,15 @@ describe("buildSchema", () => {
         {
           schema: "public",
           name: "posts",
+          type: "table",
+          description: null,
           columns: [
-            { name: "id", type: "int4", nullable: false, isPrimaryKey: true, isUnique: false, defaultValue: null, enumValues: null, arrayElementType: null },
-            { name: "tags", type: "_text", nullable: true, isPrimaryKey: false, isUnique: false, defaultValue: null, enumValues: null, arrayElementType: "text" },
+            { name: "id", type: "int4", nullable: false, isPrimaryKey: true, isUnique: false, defaultValue: null, enumValues: null, arrayElementType: null, description: null },
+            { name: "tags", type: "_text", nullable: true, isPrimaryKey: false, isUnique: false, defaultValue: null, enumValues: null, arrayElementType: "text", description: null },
           ],
         },
       ],
+      views: [],
       foreignKeys: [],
       enums: {},
     };
@@ -92,11 +102,14 @@ describe("buildSchema", () => {
         {
           schema: "public",
           name: "items",
+          type: "table",
+          description: null,
           columns: [
-            { name: "id", type: "int4", nullable: false, isPrimaryKey: true, isUnique: false, defaultValue: null, enumValues: null, arrayElementType: null },
+            { name: "id", type: "int4", nullable: false, isPrimaryKey: true, isUnique: false, defaultValue: null, enumValues: null, arrayElementType: null, description: null },
           ],
         },
       ],
+      views: [],
       foreignKeys: [],
       enums: {},
     };

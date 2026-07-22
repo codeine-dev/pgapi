@@ -25,6 +25,22 @@ import {
   buildDelete,
 } from "./sql";
 
+const TimestampScalar = new GraphQLScalarType({
+  name: "Timestamp",
+  description: "Unix epoch in milliseconds",
+  serialize(value: unknown): number {
+    if (value instanceof Date) return value.getTime();
+    if (typeof value === "number") return value;
+    if (typeof value === "string") return new Date(value).getTime();
+    return 0;
+  },
+  parseValue(value: unknown): Date {
+    if (typeof value === "number") return new Date(value);
+    if (typeof value === "string") return new Date(value);
+    return new Date(0);
+  },
+});
+
 const scalarMap: Record<string, () => GraphQLScalarType> = {
   int: () => GraphQLInt,
   int2: () => GraphQLInt,
@@ -45,8 +61,8 @@ const scalarMap: Record<string, () => GraphQLScalarType> = {
   date: () => GraphQLString,
   time: () => GraphQLString,
   timetz: () => GraphQLString,
-  timestamp: () => GraphQLString,
-  timestamptz: () => GraphQLString,
+  timestamp: () => TimestampScalar,
+  timestamptz: () => TimestampScalar,
   bytea: () => GraphQLString,
   inet: () => GraphQLString,
   cidr: () => GraphQLString,
@@ -322,11 +338,11 @@ const buildTableType = (table: Table, model: SchemaModel): GraphQLObjectType => 
     const colFields: GraphQLFieldConfigMap<unknown, ResolverContext> = {};
 
     for (const col of table.columns) {
-      colFields[col.name] = { type: getGraphQLType(col) };
+      colFields[col.name] = { type: getGraphQLType(col), description: col.description ?? undefined };
     }
 
     for (const fk of outgoingFks) {
-      const targetTable = model.tables.find((t) => t.name === fk.toTable);
+      const targetTable = [...model.tables, ...model.views].find((t) => t.name === fk.toTable);
       if (!targetTable) continue;
 
       const isToOne = targetTable.columns.some((c) => c.isPrimaryKey);
@@ -344,7 +360,7 @@ const buildTableType = (table: Table, model: SchemaModel): GraphQLObjectType => 
     }
 
     for (const fk of incomingFks) {
-      const sourceTable = model.tables.find((t) => t.name === fk.fromTable);
+      const sourceTable = [...model.tables, ...model.views].find((t) => t.name === fk.fromTable);
       if (!sourceTable) continue;
 
       colFields[sourceTable.name] = {
@@ -362,6 +378,7 @@ const buildTableType = (table: Table, model: SchemaModel): GraphQLObjectType => 
 
   const type = new GraphQLObjectType({
     name: table.name,
+    description: table.description ?? undefined,
     fields,
   });
 
@@ -399,6 +416,23 @@ const buildQueryType = (model: SchemaModel): GraphQLObjectType => {
         resolve: byPkResolver(table, pk),
       };
     }
+  }
+
+  for (const view of model.views) {
+    const viewType = buildTableType(view, model);
+    const whereType = buildWhereInputType(view);
+    const orderByType = buildOrderByInputType(view);
+
+    fields[view.name] = {
+      type: new GraphQLList(viewType),
+      args: {
+        where: { type: whereType },
+        limit: { type: GraphQLInt },
+        offset: { type: GraphQLInt },
+        orderBy: { type: orderByType },
+      },
+      resolve: listResolver(view),
+    };
   }
 
   return new GraphQLObjectType({
