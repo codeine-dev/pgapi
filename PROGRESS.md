@@ -42,8 +42,15 @@
 - [x] ResolverContext with persistent DB client + model
 - [x] 34 tests passing, typecheck clean
 
-## Phase 4: Server & Console
+## Phase 4: Server & Console (complete)
 
-- [ ] HTTP server with graphql endpoint
-- [ ] GraphiQL console at /console
-- [ ] Error handling & logging
+- [x] HTTP server with graphql endpoint
+- [x] GraphiQL console at /console
+- [x] Error handling & logging
+- [x] Structured logging with levels (debug, info, warn, error)
+- [x] Request logging (method, path, status, duration)
+- [x] Graceful shutdown (SIGTERM/SIGINT, DB client cleanup)
+- [x] GET /graphql support for queries
+- [x] Single executable build (bun build --compile)
+- [x] Dockerfile (multi-stage: build with bun, runtime on debian-slim)
+- [x] 34 tests passing, typecheck clean

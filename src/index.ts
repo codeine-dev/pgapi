@@ -1,43 +1,62 @@
+import { Client } from "pg";
 import { pipe } from "fp-ts/function";
+import * as E from "fp-ts/Either";
 import * as TE from "fp-ts/TaskEither";
 import { parseArgs } from "./cli";
 import { readSchema } from "./schema";
 import { buildSchema } from "./graphql";
 import { startServer } from "./server";
 import { createClient } from "./db";
+import { log, setLogLevel } from "./logger";
 import type { SchemaModel } from "./schema";
 
 const run = (): TE.TaskEither<Error, void> => {
-  const parsed = parseArgs(process.argv);
-  if (parsed._tag === "Left") return TE.left(new Error(parsed.left));
-
-  const args = parsed.right;
-  const dbEnv = { connectionString: args.connectionString };
-
-  console.log("pgapi - Postgres GraphQL API");
-  console.log("---");
+  setLogLevel("info");
 
   return pipe(
-    TE.Do,
-    TE.bind("schemaModel", () => readSchema(dbEnv, args.schemas)),
-    TE.bind("client", () => createClient(dbEnv)),
-    TE.bind("graphqlSchema", ({ schemaModel }) => TE.right(buildSchema(schemaModel))),
-    TE.chain(({ graphqlSchema, client, schemaModel }) =>
-      startServer({
-        host: args.host,
-        port: args.port,
-        schema: graphqlSchema,
-        enableConsole: args.console,
-        resolverContext: { client, model: schemaModel },
-      })
-    ),
+    TE.fromEither(pipe(
+      parseArgs(process.argv),
+      E.mapLeft((msg: string) => new Error(msg)),
+    )),
+    TE.chain((args) => {
+      const dbEnv = { connectionString: args.connectionString };
+      log.info("pgapi - Postgres GraphQL API");
+
+      let client: Client | undefined;
+
+      return pipe(
+        TE.Do,
+        TE.bind("schemaModel", () => readSchema(dbEnv, args.schemas)),
+        TE.bind("client", () => createClient(dbEnv)),
+        TE.bind("graphqlSchema", ({ schemaModel }) => TE.right(buildSchema(schemaModel))),
+        TE.chain(({ graphqlSchema, client: c, schemaModel }) => {
+          client = c;
+          return startServer({
+            host: args.host,
+            port: args.port,
+            schema: graphqlSchema,
+            enableConsole: args.console,
+            resolverContext: { client: c, model: schemaModel },
+          });
+        }),
+        TE.orElse((error): TE.TaskEither<Error, void> =>
+          TE.fromIO(() => {
+            log.error("Startup failed", { error: error.message || String(error) });
+            if (client) {
+              client.end().catch(() => {});
+            }
+            process.exit(1);
+          })
+        )
+      );
+    }),
     TE.orElse((error): TE.TaskEither<Error, void> =>
       TE.fromIO(() => {
-        console.error("Error:", error.message || error);
+        log.error("Startup failed", { error: error.message || String(error) });
         process.exit(1);
       })
     )
   );
 };
 
-run();
+run()();
