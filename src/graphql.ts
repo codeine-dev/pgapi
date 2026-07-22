@@ -164,15 +164,59 @@ const buildUpdateInputType = (table: Table): GraphQLInputObjectType | null => {
 const buildColumnsSelect = (table: Table): string[] =>
   table.columns.map((c) => c.name);
 
+const whereOperators = ["eq", "neq", "gt", "gte", "lt", "lte", "like", "in"] as const;
+
+const parseWhereArgs = (whereArg: Record<string, unknown> | undefined): Record<string, unknown> | undefined => {
+  if (!whereArg) return undefined;
+  const result: Record<string, unknown> = {};
+
+  for (const [key, value] of Object.entries(whereArg)) {
+    if (value === undefined) continue;
+
+    let matched = false;
+    for (const op of whereOperators) {
+      if (key.endsWith(`_${op}`)) {
+        const column = key.slice(0, -(op.length + 1));
+        result[column] = { _operator: op, value };
+        matched = true;
+        break;
+      }
+    }
+    if (!matched) {
+      result[key] = value;
+    }
+  }
+
+  return Object.keys(result).length > 0 ? result : undefined;
+};
+
+const parseOrderByArg = (orderByArg: Record<string, string> | undefined): { column: string; direction: "ASC" | "DESC" } | undefined => {
+  if (!orderByArg) return undefined;
+  for (const [column, direction] of Object.entries(orderByArg)) {
+    if (direction === "ASC" || direction === "DESC") {
+      return { column, direction };
+    }
+  }
+  return undefined;
+};
+
+const deriveRelationName = (fkColumn: string): string => {
+  if (fkColumn.endsWith("_id")) {
+    return fkColumn.slice(0, -3);
+  }
+  return `${fkColumn}_relation`;
+};
+
 const listResolver = (table: Table) =>
   async (parent: unknown, args: Record<string, unknown>, ctx: ResolverContext) => {
-    const where = args.where as Record<string, unknown> | undefined;
-    const orderBy = args.orderBy as { column: string; direction: string } | undefined;
+    const where = parseWhereArgs(args.where as Record<string, unknown> | undefined);
+    const orderByArg = args.orderBy as Record<string, string> | undefined;
+    const orderBy = parseOrderByArg(orderByArg);
     const selectQuery = buildSelect(table.schema, table.name, buildColumnsSelect(table), {
       where,
       limit: args.limit as number | undefined,
       offset: args.offset as number | undefined,
-      orderBy: orderBy ? { column: orderBy.column, direction: orderBy.direction === "DESC" ? "DESC" as const : "ASC" as const } : undefined,
+      orderBy,
     });
     const result = await ctx.client.query(selectQuery.sql, selectQuery.params);
     return result.rows;
@@ -240,6 +284,31 @@ const fkResolver = (fk: ForeignKey, targetTable: Table, isToOne: boolean) =>
     return result.rows;
   };
 
+const reverseFkResolver = (fk: ForeignKey, sourceTable: Table) =>
+  async (parent: unknown, args: Record<string, unknown>, ctx: ResolverContext) => {
+    const parentRecord = parent as Record<string, unknown>;
+    const pk = sourceTable.columns.find((c) => c.isPrimaryKey);
+    if (!pk) return [];
+
+    const parentValue = parentRecord[pk.name];
+    if (parentValue === null || parentValue === undefined) return [];
+
+    const sourceColumns = buildColumnsSelect(sourceTable);
+    const selectQuery = buildSelectByFk(
+      sourceTable.schema,
+      sourceTable.name,
+      sourceColumns,
+      fk.fromColumn,
+      parentValue,
+      {
+        limit: args.limit as number | undefined,
+        offset: args.offset as number | undefined,
+      }
+    );
+    const result = await ctx.client.query(selectQuery.sql, selectQuery.params);
+    return result.rows;
+  };
+
 let tableTypeCache: Map<string, GraphQLObjectType> = new Map();
 
 const buildTableType = (table: Table, model: SchemaModel): GraphQLObjectType => {
@@ -247,6 +316,7 @@ const buildTableType = (table: Table, model: SchemaModel): GraphQLObjectType => 
   if (cached) return cached;
 
   const outgoingFks = model.foreignKeys.filter((fk) => fk.fromTable === table.name);
+  const incomingFks = model.foreignKeys.filter((fk) => fk.toTable === table.name);
 
   const fields = (): GraphQLFieldConfigMap<unknown, ResolverContext> => {
     const colFields: GraphQLFieldConfigMap<unknown, ResolverContext> = {};
@@ -260,7 +330,8 @@ const buildTableType = (table: Table, model: SchemaModel): GraphQLObjectType => 
       if (!targetTable) continue;
 
       const isToOne = targetTable.columns.some((c) => c.isPrimaryKey);
-      colFields[fk.fromColumn] = {
+      const relationName = deriveRelationName(fk.fromColumn);
+      colFields[relationName] = {
         type: isToOne
           ? buildTableType(targetTable, model)
           : new GraphQLList(buildTableType(targetTable, model)),
@@ -269,6 +340,20 @@ const buildTableType = (table: Table, model: SchemaModel): GraphQLObjectType => 
           offset: { type: GraphQLInt },
         },
         resolve: fkResolver(fk, targetTable, isToOne),
+      };
+    }
+
+    for (const fk of incomingFks) {
+      const sourceTable = model.tables.find((t) => t.name === fk.fromTable);
+      if (!sourceTable) continue;
+
+      colFields[sourceTable.name] = {
+        type: new GraphQLList(buildTableType(sourceTable, model)),
+        args: {
+          limit: { type: GraphQLInt },
+          offset: { type: GraphQLInt },
+        },
+        resolve: reverseFkResolver(fk, sourceTable),
       };
     }
 
