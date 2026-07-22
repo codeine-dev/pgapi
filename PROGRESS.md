@@ -59,11 +59,11 @@
 
 ### io-ts Runtime Validation
 
-- [ ] Define io-ts codecs for CLI arguments (connection-string, port, host, console, schema)
-- [ ] Define io-ts codecs for wire types (WhereInput, OrderByInput, InsertInput, UpdateInput)
-- [ ] Replace manual type assertions with io-ts validation
-- [ ] Add validation error handling with structured error messages
-- [ ] Tests for codec validation (valid/invalid inputs)
+- [x] Define io-ts codecs for CLI arguments (connection-string, port, host, console, schema)
+- [x] Define io-ts codecs for wire types (WhereInput, OrderByInput, InsertInput, UpdateInput)
+- [x] Replace manual type assertions with io-ts validation
+- [x] Add validation error handling with structured error messages
+- [x] Tests for codec validation (valid/invalid inputs)
 
 ### Auth Middleware
 
