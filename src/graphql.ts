@@ -24,6 +24,7 @@ import {
   buildUpdate,
   buildDelete,
 } from "./sql";
+import { WhereInputCodec, OrderByInputCodec, isRight } from "./codecs";
 
 const TimestampScalar = new GraphQLScalarType({
   name: "Timestamp",
@@ -184,9 +185,13 @@ const whereOperators = ["eq", "neq", "gt", "gte", "lt", "lte", "like", "in"] as 
 
 const parseWhereArgs = (whereArg: Record<string, unknown> | undefined): Record<string, unknown> | undefined => {
   if (!whereArg) return undefined;
+
+  const validation = WhereInputCodec.validate(whereArg, []);
+  if (!isRight(validation)) return undefined;
+
   const result: Record<string, unknown> = {};
 
-  for (const [key, value] of Object.entries(whereArg)) {
+  for (const [key, value] of Object.entries(validation.right)) {
     if (value === undefined) continue;
 
     let matched = false;
@@ -208,10 +213,12 @@ const parseWhereArgs = (whereArg: Record<string, unknown> | undefined): Record<s
 
 const parseOrderByArg = (orderByArg: Record<string, string> | undefined): { column: string; direction: "ASC" | "DESC" } | undefined => {
   if (!orderByArg) return undefined;
-  for (const [column, direction] of Object.entries(orderByArg)) {
-    if (direction === "ASC" || direction === "DESC") {
-      return { column, direction };
-    }
+
+  const validation = OrderByInputCodec.validate(orderByArg, []);
+  if (!isRight(validation)) return undefined;
+
+  for (const [column, direction] of Object.entries(validation.right)) {
+    return { column, direction };
   }
   return undefined;
 };

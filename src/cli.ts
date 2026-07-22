@@ -1,16 +1,12 @@
 import * as E from "fp-ts/Either";
 import { pipe } from "fp-ts/function";
+import * as t from "io-ts";
+import { CliArgsCodec } from "./codecs";
 
-export interface CliArgs {
-  connectionString: string;
-  port: number;
-  host: string;
-  console: boolean;
-  schemas: string[];
-}
+export type CliArgs = t.TypeOf<typeof CliArgsCodec>;
 
 export const parseArgs = (args: string[]): E.Either<string, CliArgs> => {
-  const result: CliArgs = {
+  const raw: Record<string, unknown> = {
     connectionString: "",
     port: 3000,
     host: "127.0.0.1",
@@ -25,7 +21,7 @@ export const parseArgs = (args: string[]): E.Either<string, CliArgs> => {
         if (i >= args.length) return E.left("--connection-string requires a value");
         const val = args[i];
         if (val === undefined) return E.left("--connection-string requires a value");
-        result.connectionString = val;
+        raw.connectionString = val;
         break;
       }
       case "--port": {
@@ -35,7 +31,7 @@ export const parseArgs = (args: string[]): E.Either<string, CliArgs> => {
         if (portVal === undefined) return E.left("--port requires a value");
         const port = parseInt(portVal, 10);
         if (isNaN(port)) return E.left("--port must be a number");
-        result.port = port;
+        raw.port = port;
         break;
       }
       case "--host": {
@@ -43,18 +39,18 @@ export const parseArgs = (args: string[]): E.Either<string, CliArgs> => {
         if (i >= args.length) return E.left("--host requires a value");
         const hostVal = args[i];
         if (hostVal === undefined) return E.left("--host requires a value");
-        result.host = hostVal;
+        raw.host = hostVal;
         break;
       }
       case "--console":
-        result.console = true;
+        raw.console = true;
         break;
       case "--schema": {
         i++;
         if (i >= args.length) return E.left("--schema requires a value");
         const schemaVal = args[i];
         if (schemaVal === undefined) return E.left("--schema requires a value");
-        result.schemas.push(schemaVal);
+        (raw.schemas as string[]).push(schemaVal);
         break;
       }
       default:
@@ -62,9 +58,15 @@ export const parseArgs = (args: string[]): E.Either<string, CliArgs> => {
     }
   }
 
-  if (!result.connectionString) {
+  if (!raw.connectionString) {
     return E.left("--connection-string is required");
   }
 
-  return E.right(result);
+  const validation = CliArgsCodec.validate(raw, []);
+  if (validation._tag === "Left") {
+    const errors = validation.left.map((e) => e.message).join(", ");
+    return E.left(`Invalid arguments: ${errors}`);
+  }
+
+  return E.right(validation.right);
 };
