@@ -1,4 +1,5 @@
 import * as TE from "fp-ts/TaskEither";
+import * as O from "fp-ts/Option";
 import { pipe } from "fp-ts/function";
 import type { DbEnv } from "./db";
 import { withClient } from "./db";
@@ -55,10 +56,15 @@ const readEnums = withClient(async (client) => {
   const enums: Record<string, EnumValue[]> = {};
   for (const row of result.rows) {
     const key: string = row.enum_name;
-    if (!enums[key]) {
-      enums[key] = [];
-    }
-    enums[key]!.push({ label: row.label, value: row.label });
+    const values = pipe(
+      O.fromNullable(enums[key]),
+      O.getOrElse(() => {
+        const fresh: EnumValue[] = [];
+        enums[key] = fresh;
+        return fresh;
+      })
+    );
+    values.push({ label: row.label, value: row.label });
   }
   return enums;
 });
@@ -124,14 +130,19 @@ const readTables = (schemas: string[]) =>
 
     for (const row of result.rows) {
       const key = `${row.table_schema}.${row.table_name}`;
-      if (!tables[key]) {
-        tables[key] = { schema: row.table_schema, name: row.table_name, columns: [] };
-      }
+      const table = pipe(
+        O.fromNullable(tables[key]),
+        O.getOrElse(() => {
+          const fresh = { schema: row.table_schema, name: row.table_name, columns: [] as Column[] };
+          tables[key] = fresh;
+          return fresh;
+        })
+      );
 
       const isEnumType = row.type.startsWith("_");
       const arrayElement = isEnumType ? row.type.slice(1) : null;
 
-      tables[key].columns.push({
+      table.columns.push({
         name: row.column_name,
         type: row.type,
         nullable: row.nullable,

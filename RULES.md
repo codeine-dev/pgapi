@@ -11,6 +11,11 @@
 - All external actions return TaskEither<E, A>
 - Single executable target for production
 
+## Functional Style
+- Never use non-null assertions (`!`) — use `O.fromNullable` + `O.getOrElse` instead
+- Never use `try...catch` — use `TE.tryCatch` with const-tagged error unions (`{ _tag: "X" as const }`)
+- Exception: `try/finally` inside `TE.tryCatch` is fine for deterministic resource cleanup
+
 ## Conventions
 - Tests alongside source or in tests/ directory
 - Keep PROGRESS.md updated after each session

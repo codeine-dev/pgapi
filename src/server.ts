@@ -1,6 +1,8 @@
-import { GraphQLSchema } from "graphql";
+import { GraphQLSchema, graphql } from "graphql";
 import { createServer, IncomingMessage, ServerResponse } from "http";
 import * as TE from "fp-ts/TaskEither";
+import * as O from "fp-ts/Option";
+import { pipe } from "fp-ts/function";
 
 export interface ServerEnv {
   host: string;
@@ -9,30 +11,60 @@ export interface ServerEnv {
   enableConsole: boolean;
 }
 
-const handleRequest = (env: ServerEnv) => async (
-  req: IncomingMessage,
-  res: ServerResponse
-) => {
-  const url = req.url || "/";
+type RequestError =
+  | { _tag: "ParseError"; message: string }
+  | { _tag: "GraphqlError"; message: string };
 
-  if (url === "/graphql" && req.method === "POST") {
-    let body = "";
-    for await (const chunk of req) {
-      body += chunk;
-    }
-    try {
-      const { graphql } = await import("graphql");
-      const parsed = JSON.parse(body);
-      const result = await graphql({ schema: env.schema, source: parsed.query, variableValues: parsed.variables });
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify(result));
-    } catch (e) {
-      res.writeHead(400, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ error: String(e) }));
-    }
-  } else if (url === "/console" && env.enableConsole) {
-    res.writeHead(200, { "Content-Type": "text/html" });
-    res.end(`<!DOCTYPE html>
+const readBody = (req: IncomingMessage): TE.TaskEither<RequestError, string> =>
+  TE.tryCatch(
+    async () => {
+      let body = "";
+      for await (const chunk of req) {
+        body += chunk as string;
+      }
+      return body;
+    },
+    (e) => ({ _tag: "ParseError" as const, message: String(e) })
+  );
+
+const parseJson = (body: string): TE.TaskEither<RequestError, { query?: string; variables?: Record<string, unknown> }> =>
+  TE.tryCatch(
+    () => Promise.resolve(JSON.parse(body) as { query?: string; variables?: Record<string, unknown> }),
+    (e) => ({ _tag: "ParseError" as const, message: String(e) })
+  );
+
+const executeGraphql = (env: ServerEnv) => (parsed: { query?: string; variables?: Record<string, unknown> }): TE.TaskEither<RequestError, unknown> =>
+  TE.tryCatch(
+    () =>
+      graphql({
+        schema: env.schema,
+        source: parsed.query ?? "",
+        variableValues: parsed.variables,
+      }),
+    (e) => ({ _tag: "GraphqlError" as const, message: String(e) })
+  );
+
+const handleGraphqlRequest = (env: ServerEnv, req: IncomingMessage, res: ServerResponse): void => {
+  pipe(
+    readBody(req),
+    TE.chain(parseJson),
+    TE.chain(executeGraphql(env)),
+    TE.match(
+      (error) => {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: error.message }));
+      },
+      (result) => {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify(result));
+      }
+    )
+  )();
+};
+
+const handleConsoleRequest = (res: ServerResponse): void => {
+  res.writeHead(200, { "Content-Type": "text/html" });
+  res.end(`<!DOCTYPE html>
 <html>
 <head><title>GraphiQL</title>
 <link href="https://unpkg.com/graphiql/graphiql.min.css" rel="stylesheet" />
@@ -45,6 +77,15 @@ const handleRequest = (env: ServerEnv) => async (
 const fetcher = GraphiQL.createFetcher({ url: '/graphql' });
 ReactDOM.render(React.createElement(GraphiQL, { fetcher }), document.getElementById('graphiql'));
 </script></body></html>`);
+};
+
+const handleRequest = (env: ServerEnv) => (req: IncomingMessage, res: ServerResponse) => {
+  const url = pipe(O.fromNullable(req.url), O.getOrElse(() => "/"));
+
+  if (url === "/graphql" && req.method === "POST") {
+    handleGraphqlRequest(env, req, res);
+  } else if (url === "/console" && env.enableConsole) {
+    handleConsoleRequest(res);
   } else {
     res.writeHead(404);
     res.end("Not found");
