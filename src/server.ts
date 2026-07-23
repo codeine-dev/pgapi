@@ -36,19 +36,20 @@ const readBody = (req: IncomingMessage): TE.TaskEither<RequestError, string> =>
     (e) => ({ _tag: "ParseError" as const, message: String(e) })
   );
 
-const parseJson = (body: string): TE.TaskEither<RequestError, { query?: string; variables?: Record<string, unknown> }> =>
+const parseJson = (body: string): TE.TaskEither<RequestError, { query?: string; variables?: Record<string, unknown>; operationName?: string }> =>
   TE.tryCatch(
-    () => Promise.resolve(JSON.parse(body) as { query?: string; variables?: Record<string, unknown> }),
+    () => Promise.resolve(JSON.parse(body) as { query?: string; variables?: Record<string, unknown>; operationName?: string }),
     (e) => ({ _tag: "ParseError" as const, message: String(e) })
   );
 
-const parseQueryParams = (url: string): { query?: string; variables?: Record<string, unknown> } => {
+const parseQueryParams = (url: string): { query?: string; variables?: Record<string, unknown>; operationName?: string } => {
   const questionMark = url.indexOf("?");
   if (questionMark === -1) return {};
 
   const searchParams = new URLSearchParams(url.slice(questionMark + 1));
   const query = searchParams.get("query") ?? undefined;
   const variablesStr = searchParams.get("variables") ?? undefined;
+  const operationName = searchParams.get("operationName") ?? undefined;
 
   let variables: Record<string, unknown> | undefined;
   if (variablesStr) {
@@ -59,10 +60,10 @@ const parseQueryParams = (url: string): { query?: string; variables?: Record<str
     }
   }
 
-  return { query, variables };
+  return { query, variables, operationName };
 };
 
-const executeGraphql = (env: ServerEnv, authContext: AuthContext) => (parsed: { query?: string; variables?: Record<string, unknown> }): TE.TaskEither<RequestError, unknown> =>
+const executeGraphql = (env: ServerEnv, authContext: AuthContext) => (parsed: { query?: string; variables?: Record<string, unknown>; operationName?: string }): TE.TaskEither<RequestError, unknown> =>
   TE.tryCatch(
     async () => {
       if (env.resolverContext.model.hasPermissions) {
@@ -73,6 +74,7 @@ const executeGraphql = (env: ServerEnv, authContext: AuthContext) => (parsed: { 
         schema: env.schema,
         source: parsed.query ?? "",
         variableValues: parsed.variables,
+        operationName: parsed.operationName,
         contextValue: { ...env.resolverContext, auth: authContext },
       });
     },
