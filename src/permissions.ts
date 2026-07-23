@@ -5,13 +5,13 @@ import { quoteIdentifier } from "./sql";
 
 export const setSessionVariables = async (client: Client, auth: AuthContext): Promise<void> => {
   if (auth.isAuthenticated && auth.user) {
-    const sub = auth.user.sub != null ? JSON.stringify(auth.user.sub) : "{}";
-    const role = auth.user.role != null ? JSON.stringify(auth.user.role) : "{}";
+    const sub = auth.user.sub != null ? String(auth.user.sub) : "";
+    const role = auth.user.role != null ? String(auth.user.role) : "";
     await client.query(`SET "x_pgapi.sub" = ${quoteLiteral(sub)}`);
     await client.query(`SET "x_pgapi.role" = ${quoteLiteral(role)}`);
   } else {
-    await client.query(`SET "x_pgapi.sub" = '{}'`);
-    await client.query(`SET "x_pgapi.role" = '{}'`);
+    await client.query(`SET "x_pgapi.sub" = ''`);
+    await client.query(`SET "x_pgapi.role" = ''`);
   }
 };
 
@@ -30,7 +30,7 @@ DECLARE
   _func_name text := TG_TABLE_NAME || '_' || lower(TG_OP) || '_check';
 BEGIN
   EXECUTE format(
-    'SELECT %I.%I(current_setting(''x_pgapi.sub'')::jsonb, current_setting(''x_pgapi.role'')::jsonb, $1)',
+    'SELECT %I.%I(current_setting(''x_pgapi.sub''), current_setting(''x_pgapi.role''), $1)',
     _schema_name,
     _func_name
   ) INTO _check_result USING ROW_TO_JSON(NEW)::jsonb;

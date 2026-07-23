@@ -39,7 +39,7 @@ pgapi supports row-level permissions through Postgres functions. If you define s
    - `x_pgapi.sub` — the `sub` claim (typically the user ID)
    - `x_pgapi.role` — the `role` claim (if present)
 
-   Your functions read these via `current_setting('x_pgapi.sub')::jsonb`.
+   Your functions read these via `current_setting('x_pgapi.sub')`.
 
 3. **Query Modification** — When a filter function exists for an operation, pgapi replaces the table source with the function. When a check function exists, pgapi creates a BEFORE INSERT/UPDATE trigger that calls it.
 
@@ -63,7 +63,7 @@ Your user-supplied WHERE clauses are applied **within** the filter result, so a 
 
 #### Checks (row-validators)
 
-Check functions return `boolean` and validate that a new or modified row is within allowed limits. They take **three jsonb arguments**: the user's sub, role, and the row data.
+Check functions return `boolean` and validate that a new or modified row is within allowed limits. They take **two text and one jsonb argument**: the user's sub, role, and the row data.
 
 | Function | When Called |
 |----------|------------|
@@ -101,21 +101,21 @@ CREATE FUNCTION posts_select_filter()
 RETURNS SETOF posts AS $$
   SELECT * FROM posts
   WHERE public = true
-     OR (public = false AND owned_by = (current_setting('x_pgapi.sub')::jsonb ->> 'user_id')::int)
+     OR (public = false AND owned_by = current_setting('x_pgapi.sub')::int)
 $$ LANGUAGE sql STABLE;
 
 -- Only allow deleting your own posts
 CREATE FUNCTION posts_delete_filter()
 RETURNS SETOF posts AS $$
   SELECT * FROM posts
-  WHERE owned_by = (current_setting('x_pgapi.sub')::jsonb ->> 'user_id')::int
+   WHERE owned_by = current_setting('x_pgapi.sub')::int
 $$ LANGUAGE sql STABLE;
 
 -- Only allow updating your own posts
 CREATE FUNCTION posts_update_filter()
 RETURNS SETOF posts AS $$
   SELECT * FROM posts
-  WHERE owned_by = (current_setting('x_pgapi.sub')::jsonb ->> 'user_id')::int
+  WHERE owned_by = current_setting('x_pgapi.sub')::int
 $$ LANGUAGE sql STABLE;
 ```
 
@@ -123,15 +123,15 @@ $$ LANGUAGE sql STABLE;
 
 ```sql
 -- Ensure new posts are owned by the inserting user
-CREATE FUNCTION posts_insert_check(_sub jsonb, _role jsonb, _row jsonb)
+CREATE FUNCTION posts_insert_check(_sub text, _role text, _row jsonb)
 RETURNS boolean AS $$
-  SELECT (_row ->> 'owned_by')::int = (_sub ->> 'user_id')::int
+  SELECT (_row ->> 'owned_by')::int = _sub::int
 $$ LANGUAGE sql STABLE;
 
 -- Ensure updated posts remain owned by the same user
-CREATE FUNCTION posts_update_check(_sub jsonb, _role jsonb, _row jsonb)
+CREATE FUNCTION posts_update_check(_sub text, _role text, _row jsonb)
 RETURNS boolean AS $$
-  SELECT (_row ->> 'owned_by')::int = (_sub ->> 'user_id')::int
+  SELECT (_row ->> 'owned_by')::int = _sub::int
 $$ LANGUAGE sql STABLE;
 ```
 
@@ -175,9 +175,9 @@ Check functions must follow this exact signature:
 
 ```sql
 CREATE FUNCTION {table}_{insert|update}_check(
-  _sub jsonb,    -- current_setting('x_pgapi.sub')::jsonb
-  _role jsonb,   -- current_setting('x_pgapi.role')::jsonb
-  _row jsonb     -- ROW_TO_JSON(NEW)::jsonb
+  _sub text,      -- current_setting('x_pgapi.sub')
+  _role text,     -- current_setting('x_pgapi.role')
+  _row jsonb      -- ROW_TO_JSON(NEW)::jsonb
 ) RETURNS boolean;
 ```
 
@@ -189,16 +189,16 @@ pgapi sets these before each GraphQL request:
 
 | Variable | Source | Type |
 |----------|--------|------|
-| `x_pgapi.sub` | JWT `sub` claim | jsonb string |
-| `x_pgapi.role` | JWT `role` claim | jsonb string |
+| `x_pgapi.sub` | JWT `sub` claim | text |
+| `x_pgapi.role` | JWT `role` claim | text |
 
 Read them in your functions with:
 ```sql
-current_setting('x_pgapi.sub')::jsonb
-current_setting('x_pgapi.role')::jsonb
+current_setting('x_pgapi.sub')
+current_setting('x_pgapi.role')
 ```
 
-When no authenticated user is present, both are set to `'{}'`.
+When no authenticated user is present, both are set to `''`.
 
 ### Naming Convention Summary
 
@@ -207,8 +207,8 @@ When no authenticated user is present, both are set to `'{}'`.
 | `{table}_select_filter()` | none | `SETOF {table}` | Limits visible rows for SELECT |
 | `{table}_delete_filter()` | none | `SETOF {table}` | Limits deletable rows |
 | `{table}_update_filter()` | none | `SETOF {table}` | Limits updatable rows |
-| `{table}_insert_check(sub, role, row)` | 3 jsonb | `boolean` | Validates new rows |
-| `{table}_update_check(sub, role, row)` | 3 jsonb | `boolean` | Validates modified rows |
+| `{table}_insert_check(sub, role, row)` | 2 text + jsonb | `boolean` | Validates new rows |
+| `{table}_update_check(sub, role, row)` | 2 text + jsonb | `boolean` | Validates modified rows |
 
 Only define the functions you need. A missing function means no restriction for that operation.
 

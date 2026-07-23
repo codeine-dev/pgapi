@@ -65,6 +65,7 @@ beforeAll(async () => {
   await ctx.client.query("DROP TRIGGER IF EXISTS pgapi_update_check ON users");
   await ctx.client.query("DROP FUNCTION IF EXISTS pgapi_check_trigger()");
   await ctx.client.query("DROP FUNCTION IF EXISTS public.users_select_filter()");
+  await ctx.client.query("DROP FUNCTION IF EXISTS public.users_insert_check(text, text, jsonb)");
   await ctx.client.query("DROP FUNCTION IF EXISTS public.users_insert_check(jsonb, jsonb, jsonb)");
 });
 
@@ -339,7 +340,7 @@ describe("Permission Functions", () => {
     `);
 
     await permClient.query(`
-      CREATE OR REPLACE FUNCTION public.users_insert_check(_sub jsonb, _role jsonb, _row jsonb)
+      CREATE OR REPLACE FUNCTION public.users_insert_check(_sub text, _role text, _row jsonb)
       RETURNS boolean AS $$
         SELECT (_row->>'name') != 'forbidden'
       $$ LANGUAGE sql STABLE
@@ -357,6 +358,8 @@ describe("Permission Functions", () => {
     await permClient.query("DROP TRIGGER IF EXISTS pgapi_update_check ON users");
     await permClient.query("DROP FUNCTION IF EXISTS pgapi_check_trigger()");
     await permClient.query("DROP FUNCTION IF EXISTS public.users_select_filter()");
+    await permClient.query("DROP FUNCTION IF EXISTS public.users_insert_check(text, text, jsonb)");
+    await permClient.query("DROP FUNCTION IF EXISTS public.users_insert_check(text, text, jsonb)");
     await permClient.query("DROP FUNCTION IF EXISTS public.users_insert_check(jsonb, jsonb, jsonb)");
     await permClient.end();
   });

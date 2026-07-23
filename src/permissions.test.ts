@@ -27,8 +27,8 @@ describe("setSessionVariables", () => {
     await setSessionVariables(client, auth);
 
     const result = await client.query("SELECT current_setting('x_pgapi.sub') as sub, current_setting('x_pgapi.role') as role");
-    expect(result.rows[0].sub).toBe('"user-123"');
-    expect(result.rows[0].role).toBe('"admin"');
+    expect(result.rows[0].sub).toBe("user-123");
+    expect(result.rows[0].role).toBe("admin");
   });
 
   it("clears variables for unauthenticated request", async () => {
@@ -37,8 +37,8 @@ describe("setSessionVariables", () => {
     await setSessionVariables(client, auth);
 
     const result = await client.query("SELECT current_setting('x_pgapi.sub') as sub, current_setting('x_pgapi.role') as role");
-    expect(result.rows[0].sub).toBe("{}");
-    expect(result.rows[0].role).toBe("{}");
+    expect(result.rows[0].sub).toBe("");
+    expect(result.rows[0].role).toBe("");
   });
 
   it("handles missing sub/role in user claims", async () => {
@@ -50,8 +50,8 @@ describe("setSessionVariables", () => {
     await setSessionVariables(client, auth);
 
     const result = await client.query("SELECT current_setting('x_pgapi.sub') as sub, current_setting('x_pgapi.role') as role");
-    expect(result.rows[0].sub).toBe("{}");
-    expect(result.rows[0].role).toBe("{}");
+    expect(result.rows[0].sub).toBe("");
+    expect(result.rows[0].role).toBe("");
   });
 });
 
@@ -64,14 +64,14 @@ describe("ensureCheckTriggers", () => {
       )
     `);
     await client.query(`
-      CREATE OR REPLACE FUNCTION _perm_test_insert_check(_sub jsonb, _role jsonb, _row jsonb)
+      CREATE OR REPLACE FUNCTION _perm_test_insert_check(_sub text, _role text, _row jsonb)
       RETURNS boolean AS $$ SELECT true $$ LANGUAGE sql STABLE
     `);
   });
 
   afterAll(async () => {
     await client.query("DROP TRIGGER IF EXISTS pgapi_insert_check ON _perm_test");
-    await client.query("DROP FUNCTION IF EXISTS _perm_test_insert_check(jsonb, jsonb, jsonb)");
+    await client.query("DROP FUNCTION IF EXISTS _perm_test_insert_check(text, text, jsonb)");
     await client.query("DROP TABLE IF EXISTS _perm_test");
   });
 

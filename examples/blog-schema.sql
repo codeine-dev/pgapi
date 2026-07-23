@@ -79,15 +79,15 @@ COMMENT ON TABLE comments IS 'Reader comments on published posts';
 -- ============================================================================
 --
 -- pgapi sets these from the JWT claims:
---   SET "x_pgapi.sub"  = '<sub claim as jsonb>'
---   SET "x_pgapi.role" = '<role claim as jsonb>'
+--   SET "x_pgapi.sub"  = '<sub claim as text>'
+--   SET "x_pgapi.role" = '<role claim as text>'
 --
 -- Your permission functions read them with:
---   current_setting('x_pgapi.sub')::jsonb
---   current_setting('x_pgapi.role')::jsonb
+--   current_setting('x_pgapi.sub')
+--   current_setting('x_pgapi.role')
 --
 -- Example JWT payload:
---   { "sub": { "user_id": 42 }, "role": "author" }
+--   { "sub": "42", "role": "author" }
 
 
 -- ============================================================================
@@ -112,7 +112,7 @@ CREATE FUNCTION posts_select_filter()
 RETURNS SETOF posts AS $$
     SELECT * FROM posts
     WHERE published = true
-       OR owned_by = (current_setting('x_pgapi.sub')::jsonb ->> 'user_id')::int
+       OR owned_by = current_setting('x_pgapi.sub')::int
 $$ LANGUAGE sql STABLE;
 
 
@@ -129,8 +129,8 @@ $$ LANGUAGE sql STABLE;
 CREATE FUNCTION posts_delete_filter()
 RETURNS SETOF posts AS $$
     SELECT * FROM posts
-    WHERE owned_by = (current_setting('x_pgapi.sub')::jsonb ->> 'user_id')::int
-       OR (current_setting('x_pgapi.role')::jsonb ->> '') = 'admin'
+    WHERE owned_by = current_setting('x_pgapi.sub')::int
+       OR current_setting('x_pgapi.role') = 'admin'
 $$ LANGUAGE sql STABLE;
 
 
@@ -149,8 +149,8 @@ $$ LANGUAGE sql STABLE;
 CREATE FUNCTION posts_update_filter()
 RETURNS SETOF posts AS $$
     SELECT * FROM posts
-    WHERE owned_by = (current_setting('x_pgapi.sub')::jsonb ->> 'user_id')::int
-       OR (current_setting('x_pgapi.role')::jsonb ->> '') IN ('admin', 'editor')
+    WHERE owned_by = current_setting('x_pgapi.sub')::int
+       OR current_setting('x_pgapi.role') IN ('admin', 'editor')
 $$ LANGUAGE sql STABLE;
 
 
@@ -159,17 +159,17 @@ $$ LANGUAGE sql STABLE;
 -- The BEFORE INSERT trigger calls this function automatically.
 -- Return true to allow the insert, false to reject it.
 --
--- Arguments (all jsonb):
---   _sub  - the user's sub claim
---   _role - the user's role claim
+-- Arguments:
+--   _sub  - the user's sub claim (text)
+--   _role - the user's role claim (text)
 --   _row  - the new row as JSONB (ROW_TO_JSON(NEW)::jsonb)
 --
 -- The row contains all column values. Access them with (_row->> 'column').
 
-CREATE FUNCTION posts_insert_check(_sub jsonb, _role jsonb, _row jsonb)
+CREATE FUNCTION posts_insert_check(_sub text, _role text, _row jsonb)
 RETURNS boolean AS $$
     -- Authors and editors can create posts, but only as themselves
-    SELECT (_row ->> 'owned_by')::int = (_sub ->> 'user_id')::int
+    SELECT (_row ->> 'owned_by')::int = _sub::int
 $$ LANGUAGE sql STABLE;
 
 
@@ -179,7 +179,7 @@ $$ LANGUAGE sql STABLE;
 --
 -- Use case: prevent changing the post owner after creation.
 
-CREATE FUNCTION posts_update_check(_sub jsonb, _role jsonb, _row jsonb)
+CREATE FUNCTION posts_update_check(_sub text, _role text, _row jsonb)
 RETURNS boolean AS $$
     -- The row must still be owned by the same user who originally owned it.
     -- (In practice, the update_filter already restricts this, but the check
@@ -201,7 +201,7 @@ RETURNS SETOF comments AS $$
     SELECT c.* FROM comments c
     JOIN posts p ON c.post_id = p.id
     WHERE p.published = true
-       OR p.owned_by = (current_setting('x_pgapi.sub')::jsonb ->> 'user_id')::int
+       OR p.owned_by = current_setting('x_pgapi.sub')::int
 $$ LANGUAGE sql STABLE;
 
 
@@ -209,9 +209,9 @@ $$ LANGUAGE sql STABLE;
 -- The comment author must match the authenticated user.
 -- Prevents one user from posting comments as another user.
 
-CREATE FUNCTION comments_insert_check(_sub jsonb, _role jsonb, _row jsonb)
+CREATE FUNCTION comments_insert_check(_sub text, _role text, _row jsonb)
 RETURNS boolean AS $$
-    SELECT (_row ->> 'author_id')::int = (_sub ->> 'user_id')::int
+    SELECT (_row ->> 'author_id')::int = _sub::int
 $$ LANGUAGE sql STABLE;
 
 
@@ -224,7 +224,7 @@ $$ LANGUAGE sql STABLE;
 --
 -- Example: query as a reader (sees only published posts)
 --
---   export X_PGAPI_SUB='{"user_id": 99}'
+--   export X_PGAPI_SUB='99'
 --   export X_PGAPI_ROLE='reader'
 --   curl -H "Authorization: Bearer $TOKEN" http://localhost:3000/graphql \
 --     -d '{"query": "{ posts { id title published } }"}'
