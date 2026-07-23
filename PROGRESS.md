@@ -75,14 +75,14 @@
 
 ### Integration Tests
 
-- [ ] Set up test database with schema fixtures
-- [ ] CRUD operation tests (create, read, update, delete)
-- [ ] Relationship resolution tests (FK nested queries)
-- [ ] Where clause operator tests (eq, neq, gt, lt, like, in)
-- [ ] OrderBy and pagination tests
-- [ ] View query tests
-- [ ] Auth middleware integration tests
-- [ ] Error handling tests (invalid input, missing required fields)
+- [x] Set up test database with schema fixtures
+- [x] CRUD operation tests (create, read, update, delete)
+- [x] Relationship resolution tests (FK nested queries)
+- [x] Where clause operator tests (eq, neq, gt, lt, like, in)
+- [x] OrderBy and pagination tests
+- [x] View query tests
+- [x] Auth middleware integration tests
+- [x] Error handling tests (invalid input, missing required fields)
 
 - [x] HTTP server with graphql endpoint
 - [x] GraphiQL console at /console
