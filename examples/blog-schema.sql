@@ -222,12 +222,15 @@ $$ LANGUAGE sql STABLE;
 -- Start pgapi pointing at this database. It will discover these functions
 -- and automatically enforce the permission rules on every GraphQL request.
 --
--- Example: query as a reader (sees only published posts)
+-- Your JWT must include a "sub" claim matching a user id, and optionally a
+-- "role" claim. For example, to act as Alice (id 1, admin):
 --
---   export X_PGAPI_SUB='99'
---   export X_PGAPI_ROLE='reader'
---   curl -H "Authorization: Bearer $TOKEN" http://localhost:3000/graphql \
---     -d '{"query": "{ posts { id title published } }"}'
+--   { "sub": "1", "role": "admin" }
 --
+-- To act as Bob (id 2, regular user):
+--
+--   { "sub": "2" }
+--
+-- Sign the payload with your JWT secret and pass it as a Bearer token.
 -- The posts_select_filter ensures readers only see published posts.
 -- The comments_insert_check ensures a user can only comment as themselves.
