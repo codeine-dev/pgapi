@@ -21,12 +21,21 @@ export interface Column {
   description: string | null;
 }
 
+export interface PermissionFunctions {
+  selectFilter: boolean;
+  deleteFilter: boolean;
+  insertCheck: boolean;
+  updateFilter: boolean;
+  updateCheck: boolean;
+}
+
 export interface Table {
   schema: string;
   name: string;
   columns: Column[];
   type: "table" | "view" | "materialized_view";
   description: string | null;
+  permissions: PermissionFunctions | null;
 }
 
 export interface ForeignKey {
@@ -43,6 +52,7 @@ export interface SchemaModel {
   views: Table[];
   foreignKeys: ForeignKey[];
   enums: Record<string, EnumValue[]>;
+  hasPermissions: boolean;
 }
 
 const readEnums = withClient(async (client) => {
@@ -200,14 +210,14 @@ const readTables = (schemas: string[]) =>
       params
     );
 
-    const tables: Record<string, { schema: string; name: string; columns: Column[]; type: "table"; description: string | null }> = {};
+    const tables: Record<string, { schema: string; name: string; columns: Column[]; type: "table"; description: string | null; permissions: PermissionFunctions | null }> = {};
 
     for (const row of result.rows) {
       const key = `${row.table_schema}.${row.table_name}`;
       const table = pipe(
         O.fromNullable(tables[key]),
         O.getOrElse(() => {
-          const fresh = { schema: row.table_schema, name: row.table_name, columns: [] as Column[], type: "table" as const, description: null as string | null };
+          const fresh = { schema: row.table_schema, name: row.table_name, columns: [] as Column[], type: "table" as const, description: null as string | null, permissions: null as PermissionFunctions | null };
           tables[key] = fresh;
           return fresh;
         })
@@ -272,6 +282,78 @@ const readForeignKeys = (schemas: string[]) =>
     }));
   });
 
+const readPermissionFunctions = (schemas: string[]) =>
+  withClient(async (client) => {
+    const schemaFilter =
+      schemas.length > 0
+        ? `AND n.nspname = ANY($1)`
+        : `AND n.nspname NOT IN ('pg_catalog', 'information_schema')`;
+    const params = schemas.length > 0 ? [schemas] : [];
+
+    const result = await client.query(
+      `
+      WITH candidate_functions AS (
+        SELECT
+          n.nspname as schema_name,
+          p.proname as function_name,
+          CASE
+            WHEN p.proname LIKE '%\_select_filter' THEN 'select_filter'
+            WHEN p.proname LIKE '%\_delete_filter' THEN 'delete_filter'
+            WHEN p.proname LIKE '%\_update_filter' THEN 'update_filter'
+            WHEN p.proname LIKE '%\_insert_check' THEN 'insert_check'
+            WHEN p.proname LIKE '%\_update_check' THEN 'update_check'
+            ELSE NULL
+          END as function_kind
+        FROM pg_proc p
+        JOIN pg_namespace n ON p.pronamespace = n.oid
+        WHERE (
+          (p.proname LIKE '%\_select_filter' AND p.pronargs = 0)
+          OR (p.proname LIKE '%\_delete_filter' AND p.pronargs = 0)
+          OR (p.proname LIKE '%\_update_filter' AND p.pronargs = 0)
+          OR (p.proname LIKE '%\_insert_check' AND p.pronargs = 3)
+          OR (p.proname LIKE '%\_update_check' AND p.pronargs = 3)
+        )
+        ${schemaFilter}
+      )
+      SELECT * FROM candidate_functions WHERE function_kind IS NOT NULL
+      ORDER BY schema_name, function_name
+      `,
+      params
+    );
+
+    const perms: Record<string, PermissionFunctions> = {};
+    for (const row of result.rows) {
+      const fn: string = row.function_name;
+      const kind: string = row.function_kind;
+      const schemaName: string = row.schema_name;
+
+      let tableName: string;
+      if (kind === "select_filter") tableName = fn.slice(0, -"_select_filter".length);
+      else if (kind === "delete_filter") tableName = fn.slice(0, -"_delete_filter".length);
+      else if (kind === "update_filter") tableName = fn.slice(0, -"_update_filter".length);
+      else if (kind === "insert_check") tableName = fn.slice(0, -"_insert_check".length);
+      else if (kind === "update_check") tableName = fn.slice(0, -"_update_check".length);
+      else continue;
+
+      const key = `${schemaName}.${tableName}`;
+      if (!perms[key]) {
+        perms[key] = { selectFilter: false, deleteFilter: false, insertCheck: false, updateFilter: false, updateCheck: false };
+      }
+
+      const propMap: Record<string, keyof PermissionFunctions> = {
+        select_filter: "selectFilter",
+        delete_filter: "deleteFilter",
+        update_filter: "updateFilter",
+        insert_check: "insertCheck",
+        update_check: "updateCheck",
+      };
+      const prop = propMap[kind];
+      if (prop) perms[key][prop] = true;
+    }
+
+    return perms;
+  });
+
 const readViews = (schemas: string[]) =>
   withClient(async (client) => {
     const schemaFilter =
@@ -314,14 +396,14 @@ const readViews = (schemas: string[]) =>
       params
     );
 
-    const views: Record<string, { schema: string; name: string; columns: Column[]; type: "view" | "materialized_view"; description: string | null }> = {};
+    const views: Record<string, { schema: string; name: string; columns: Column[]; type: "view" | "materialized_view"; description: string | null; permissions: PermissionFunctions | null }> = {};
 
     for (const row of result.rows) {
       const key = `${row.table_schema}.${row.table_name}`;
       const view = pipe(
         O.fromNullable(views[key]),
         O.getOrElse(() => {
-          const fresh = { schema: row.table_schema, name: row.table_name, columns: [] as Column[], type: row.view_type as "view" | "materialized_view", description: null as string | null };
+          const fresh = { schema: row.table_schema, name: row.table_name, columns: [] as Column[], type: row.view_type as "view" | "materialized_view", description: null as string | null, permissions: null as PermissionFunctions | null };
           views[key] = fresh;
           return fresh;
         })
@@ -368,10 +450,12 @@ export const readSchema = (
     TE.bind("foreignKeys", () => readForeignKeys(schemas)(env)),
     TE.bind("tableDescriptions", () => readTableDescriptions(schemas)(env)),
     TE.bind("columnDescriptions", () => readColumnDescriptions(schemas)(env)),
-    TE.map(({ tables, views, foreignKeys, enums, tableDescriptions, columnDescriptions }) => ({
+    TE.bind("permissions", () => readPermissionFunctions(schemas)(env)),
+    TE.map(({ tables, views, foreignKeys, enums, tableDescriptions, columnDescriptions, permissions }) => ({
       tables: attachEnumValues(tables, enums).map((t) => ({
         ...t,
         description: tableDescriptions[`${t.schema}.${t.name}`] ?? null,
+        permissions: permissions[`${t.schema}.${t.name}`] ?? null,
         columns: t.columns.map((c) => ({
           ...c,
           description: columnDescriptions[`${t.schema}.${t.name}.${c.name}`] ?? null,
@@ -380,6 +464,7 @@ export const readSchema = (
       views: attachEnumValues(views, enums).map((v) => ({
         ...v,
         description: tableDescriptions[`${v.schema}.${v.name}`] ?? null,
+        permissions: null,
         columns: v.columns.map((c) => ({
           ...c,
           description: columnDescriptions[`${v.schema}.${v.name}.${c.name}`] ?? null,
@@ -387,5 +472,6 @@ export const readSchema = (
       })),
       foreignKeys,
       enums,
+      hasPermissions: Object.keys(permissions).length > 0,
     }))
   );

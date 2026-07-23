@@ -7,6 +7,10 @@ import {
   buildInsert,
   buildUpdate,
   buildDelete,
+  buildSelectWithFilter,
+  buildSelectByFkWithFilter,
+  buildDeleteWithFilter,
+  buildUpdateWithFilter,
 } from "./sql";
 
 describe("quoteIdentifier", () => {
@@ -162,5 +166,80 @@ describe("buildDelete", () => {
     const result = buildDelete("public", "users", { column: "id", value: 1 });
     expect(result.sql).toBe('DELETE FROM "public"."users" WHERE "id" = $1 RETURNING *');
     expect(result.params).toEqual([1]);
+  });
+});
+
+describe("buildSelectWithFilter", () => {
+  it("builds select from filter function", () => {
+    const result = buildSelectWithFilter("public", "posts", "select_filter", ["id", "title"]);
+    expect(result.sql).toBe('SELECT "id", "title" FROM "public"."posts_select_filter"()');
+    expect(result.params).toEqual([]);
+  });
+
+  it("applies where clause within filtered source", () => {
+    const result = buildSelectWithFilter("public", "posts", "select_filter", ["id", "title"], {
+      where: { published: true },
+    });
+    expect(result.sql).toContain('FROM "public"."posts_select_filter"()');
+    expect(result.sql).toContain('WHERE "published" = $1');
+    expect(result.params).toEqual([true]);
+  });
+
+  it("applies limit and offset", () => {
+    const result = buildSelectWithFilter("public", "posts", "select_filter", ["id"], {
+      limit: 10,
+      offset: 5,
+    });
+    expect(result.sql).toContain("LIMIT $1");
+    expect(result.sql).toContain("OFFSET $2");
+    expect(result.params).toEqual([10, 5]);
+  });
+
+  it("applies order by", () => {
+    const result = buildSelectWithFilter("public", "posts", "select_filter", ["id"], {
+      orderBy: { column: "created_at", direction: "DESC" },
+    });
+    expect(result.sql).toContain('ORDER BY "created_at" DESC');
+  });
+});
+
+describe("buildSelectByFkWithFilter", () => {
+  it("builds select by fk from filter function", () => {
+    const result = buildSelectByFkWithFilter("public", "posts", "select_filter", ["id", "title"], "author_id", 42);
+    expect(result.sql).toContain('FROM "public"."posts_select_filter"()');
+    expect(result.sql).toContain('WHERE "author_id" = $1');
+    expect(result.params).toEqual([42]);
+  });
+
+  it("applies limit", () => {
+    const result = buildSelectByFkWithFilter("public", "posts", "select_filter", ["id"], "author_id", 42, {
+      limit: 5,
+    });
+    expect(result.sql).toContain("LIMIT $2");
+    expect(result.params).toEqual([42, 5]);
+  });
+});
+
+describe("buildDeleteWithFilter", () => {
+  it("builds delete from filter function", () => {
+    const result = buildDeleteWithFilter("public", "posts", "delete_filter", { column: "id", value: 1 });
+    expect(result.sql).toBe('DELETE FROM "public"."posts_delete_filter"() WHERE "id" = $1 RETURNING *');
+    expect(result.params).toEqual([1]);
+  });
+});
+
+describe("buildUpdateWithFilter", () => {
+  it("builds update with filter subquery", () => {
+    const result = buildUpdateWithFilter("public", "posts", "update_filter", { column: "id", value: 1 }, { title: "New Title" });
+    expect(result.sql).toContain('UPDATE "public"."posts" SET "title" = $1');
+    expect(result.sql).toContain('WHERE "id" = $2 AND "id" IN (SELECT "id" FROM "public"."posts_update_filter"())');
+    expect(result.params).toEqual(["New Title", 1]);
+  });
+
+  it("handles multiple set columns", () => {
+    const result = buildUpdateWithFilter("public", "posts", "update_filter", { column: "id", value: 1 }, { title: "New", body: "Content" });
+    expect(result.sql).toContain('"title" = $1');
+    expect(result.sql).toContain('"body" = $2');
+    expect(result.params).toEqual(["New", "Content", 1]);
   });
 });

@@ -9,6 +9,7 @@ import { pipe } from "fp-ts/function";
 import type { ResolverContext } from "./resolver";
 import { log, logRequest } from "./logger";
 import { authenticate, formatAuthError, type AuthConfig, type AuthContext } from "./auth";
+import { setSessionVariables } from "./permissions";
 
 export interface ServerEnv {
   host: string;
@@ -63,13 +64,18 @@ const parseQueryParams = (url: string): { query?: string; variables?: Record<str
 
 const executeGraphql = (env: ServerEnv, authContext: AuthContext) => (parsed: { query?: string; variables?: Record<string, unknown> }): TE.TaskEither<RequestError, unknown> =>
   TE.tryCatch(
-    () =>
-      graphql({
+    async () => {
+      if (env.resolverContext.model.hasPermissions) {
+        await setSessionVariables(env.resolverContext.client, authContext);
+      }
+
+      return graphql({
         schema: env.schema,
         source: parsed.query ?? "",
         variableValues: parsed.variables,
         contextValue: { ...env.resolverContext, auth: authContext },
-      }),
+      });
+    },
     (e) => ({ _tag: "GraphqlError" as const, message: String(e) })
   );
 

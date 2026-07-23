@@ -11,6 +11,7 @@ describe("buildSchema", () => {
           name: "users",
           type: "table",
           description: null,
+          permissions: null,
           columns: [
             { name: "id", type: "int4", nullable: false, isPrimaryKey: true, isUnique: false, defaultValue: null, enumValues: null, arrayElementType: null, description: null },
             { name: "name", type: "text", nullable: false, isPrimaryKey: false, isUnique: false, defaultValue: null, enumValues: null, arrayElementType: null, description: null },
@@ -20,6 +21,7 @@ describe("buildSchema", () => {
       views: [],
       foreignKeys: [],
       enums: {},
+      hasPermissions: false,
     };
 
     const schema = buildSchema(model);
@@ -38,6 +40,7 @@ describe("buildSchema", () => {
           name: "orders",
           type: "table",
           description: null,
+          permissions: null,
           columns: [
             { name: "id", type: "int4", nullable: false, isPrimaryKey: true, isUnique: false, defaultValue: null, enumValues: null, arrayElementType: null, description: null },
             {
@@ -67,6 +70,7 @@ describe("buildSchema", () => {
           { label: "delivered", value: "delivered" },
         ],
       },
+      hasPermissions: false,
     };
 
     const schema = buildSchema(model);
@@ -81,6 +85,7 @@ describe("buildSchema", () => {
           name: "posts",
           type: "table",
           description: null,
+          permissions: null,
           columns: [
             { name: "id", type: "int4", nullable: false, isPrimaryKey: true, isUnique: false, defaultValue: null, enumValues: null, arrayElementType: null, description: null },
             { name: "tags", type: "_text", nullable: true, isPrimaryKey: false, isUnique: false, defaultValue: null, enumValues: null, arrayElementType: "text", description: null },
@@ -90,6 +95,7 @@ describe("buildSchema", () => {
       views: [],
       foreignKeys: [],
       enums: {},
+      hasPermissions: false,
     };
 
     const schema = buildSchema(model);
@@ -104,6 +110,7 @@ describe("buildSchema", () => {
           name: "items",
           type: "table",
           description: null,
+          permissions: null,
           columns: [
             { name: "id", type: "int4", nullable: false, isPrimaryKey: true, isUnique: false, defaultValue: null, enumValues: null, arrayElementType: null, description: null },
           ],
@@ -112,6 +119,7 @@ describe("buildSchema", () => {
       views: [],
       foreignKeys: [],
       enums: {},
+      hasPermissions: false,
     };
 
     const schema1 = buildSchema(model);

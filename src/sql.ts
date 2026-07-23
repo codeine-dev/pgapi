@@ -231,3 +231,143 @@ export const buildDelete = (
     params: [primaryKey.value],
   };
 };
+
+export const buildSelectWithFilter = (
+  schema: string,
+  table: string,
+  filterSuffix: string,
+  columns: string[],
+  options: {
+    where?: Record<string, unknown>;
+    limit?: number;
+    offset?: number;
+    orderBy?: { column: string; direction: "ASC" | "DESC" };
+  } = {}
+): SelectQuery => {
+  const selectList = columns.map(quoteIdentifier).join(", ");
+  const filterFunc = `${quoteIdentifier(schema)}.${quoteIdentifier(`${table}_${filterSuffix}`)}()`;
+
+  let paramIndex = 1;
+  const params: unknown[] = [];
+  const clauses: string[] = [];
+
+  if (options.where) {
+    const where = buildWhere(options.where, paramIndex);
+    if (where.sql) {
+      clauses.push(where.sql);
+      params.push(...where.params);
+      paramIndex += where.params.length;
+    }
+  }
+
+  if (options.orderBy) {
+    const dir = options.orderBy.direction === "DESC" ? "DESC" : "ASC";
+    clauses.push(`ORDER BY ${quoteIdentifier(options.orderBy.column)} ${dir}`);
+  }
+
+  if (options.limit !== undefined) {
+    clauses.push(`LIMIT $${paramIndex}`);
+    params.push(options.limit);
+    paramIndex++;
+  }
+
+  if (options.offset !== undefined) {
+    clauses.push(`OFFSET $${paramIndex}`);
+    params.push(options.offset);
+    paramIndex++;
+  }
+
+  return {
+    sql: `SELECT ${selectList} FROM ${filterFunc} ${clauses.join(" ")}`.trim(),
+    params,
+  };
+};
+
+export const buildSelectByFkWithFilter = (
+  schema: string,
+  table: string,
+  filterSuffix: string,
+  columns: string[],
+  fkColumn: string,
+  parentValue: unknown,
+  options: {
+    limit?: number;
+    offset?: number;
+    orderBy?: { column: string; direction: "ASC" | "DESC" };
+  } = {}
+): SelectQuery => {
+  const selectList = columns.map(quoteIdentifier).join(", ");
+  const filterFunc = `${quoteIdentifier(schema)}.${quoteIdentifier(`${table}_${filterSuffix}`)}()`;
+  const fkCol = quoteIdentifier(fkColumn);
+
+  let paramIndex = 1;
+  const params: unknown[] = [];
+  const clauses: string[] = [];
+
+  clauses.push(`WHERE ${fkCol} = $${paramIndex}`);
+  params.push(parentValue);
+  paramIndex++;
+
+  if (options.orderBy) {
+    const dir = options.orderBy.direction === "DESC" ? "DESC" : "ASC";
+    clauses.push(`ORDER BY ${quoteIdentifier(options.orderBy.column)} ${dir}`);
+  }
+
+  if (options.limit !== undefined) {
+    clauses.push(`LIMIT $${paramIndex}`);
+    params.push(options.limit);
+    paramIndex++;
+  }
+
+  if (options.offset !== undefined) {
+    clauses.push(`OFFSET $${paramIndex}`);
+    params.push(options.offset);
+    paramIndex++;
+  }
+
+  return {
+    sql: `SELECT ${selectList} FROM ${filterFunc} ${clauses.join(" ")}`,
+    params,
+  };
+};
+
+export const buildDeleteWithFilter = (
+  schema: string,
+  table: string,
+  filterSuffix: string,
+  primaryKey: { column: string; value: unknown }
+): { sql: string; params: unknown[] } => {
+  const filterFunc = `${quoteIdentifier(schema)}.${quoteIdentifier(`${table}_${filterSuffix}`)}()`;
+
+  return {
+    sql: `DELETE FROM ${filterFunc} WHERE ${quoteIdentifier(primaryKey.column)} = $1 RETURNING *`,
+    params: [primaryKey.value],
+  };
+};
+
+export const buildUpdateWithFilter = (
+  schema: string,
+  table: string,
+  filterSuffix: string,
+  primaryKey: { column: string; value: unknown },
+  values: Record<string, unknown>
+): { sql: string; params: unknown[] } => {
+  const setClauses: string[] = [];
+  const params: unknown[] = [];
+  let paramIndex = 1;
+
+  for (const [column, value] of Object.entries(values)) {
+    setClauses.push(`${quoteIdentifier(column)} = $${paramIndex}`);
+    params.push(value);
+    paramIndex++;
+  }
+
+  params.push(primaryKey.value);
+  const pkCol = quoteIdentifier(primaryKey.column);
+  const filterFunc = `${quoteIdentifier(schema)}.${quoteIdentifier(`${table}_${filterSuffix}`)}()`;
+
+  return {
+    sql: `UPDATE ${quoteIdentifier(schema)}.${quoteIdentifier(table)} SET ${setClauses.join(", ")} WHERE ${pkCol} = $${paramIndex} AND ${pkCol} IN (SELECT ${pkCol} FROM ${filterFunc}) RETURNING *`,
+    params,
+  };
+};

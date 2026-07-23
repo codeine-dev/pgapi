@@ -73,6 +73,18 @@
 - [x] Pass auth context to resolvers (user/sub claims)
 - [x] Tests for auth middleware (valid/invalid tokens, missing auth)
 
+### Row-Level Permissions
+
+- [x] Schema discovery: read permission functions from pg_proc (filter + check patterns)
+- [x] Session variables: set x_pgapi.sub and x_pgapi.role from JWT before each request
+- [x] Filter-aware SQL builders (buildSelectWithFilter, buildDeleteWithFilter, buildUpdateWithFilter, buildSelectByFkWithFilter)
+- [x] Permission-aware resolvers: all 6 resolvers route to filter builders when functions exist
+- [x] Check trigger creation: generic pgapi_check_trigger() with dynamic EXECUTE, BEFORE INSERT/UPDATE triggers
+- [x] Startup integration: ensureCheckTriggers() called after schema discovery
+- [x] Permissions tests (unit: setSessionVariables, ensureCheckTriggers; integration: filter limiting, check reject/allow)
+- [x] SQL builder tests for all 4 new builders
+- [x] 96 tests passing, typecheck clean
+
 ### Integration Tests
 
 - [x] Set up test database with schema fixtures
@@ -83,6 +95,7 @@
 - [x] View query tests
 - [x] Auth middleware integration tests
 - [x] Error handling tests (invalid input, missing required fields)
+- [x] Permission function integration tests (select filter, insert check)
 
 - [x] HTTP server with graphql endpoint
 - [x] GraphiQL console at /console
@@ -93,4 +106,4 @@
 - [x] GET /graphql support for queries
 - [x] Single executable build (bun build --compile)
 - [x] Dockerfile (multi-stage: build with bun, runtime on debian-slim)
-- [x] 34 tests passing, typecheck clean
+- [x] 96 tests passing, typecheck clean

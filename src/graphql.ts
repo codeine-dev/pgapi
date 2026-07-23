@@ -23,6 +23,10 @@ import {
   buildInsert,
   buildUpdate,
   buildDelete,
+  buildSelectWithFilter,
+  buildSelectByFkWithFilter,
+  buildDeleteWithFilter,
+  buildUpdateWithFilter,
 } from "./sql";
 import { WhereInputCodec, OrderByInputCodec, isRight } from "./codecs";
 
@@ -235,21 +239,36 @@ const listResolver = (table: Table) =>
     const where = parseWhereArgs(args.where as Record<string, unknown> | undefined);
     const orderByArg = args.orderBy as Record<string, string> | undefined;
     const orderBy = parseOrderByArg(orderByArg);
-    const selectQuery = buildSelect(table.schema, table.name, buildColumnsSelect(table), {
-      where,
-      limit: args.limit as number | undefined,
-      offset: args.offset as number | undefined,
-      orderBy,
-    });
+    const columns = buildColumnsSelect(table);
+
+    const selectQuery = table.permissions?.selectFilter
+      ? buildSelectWithFilter(table.schema, table.name, "select_filter", columns, {
+          where,
+          limit: args.limit as number | undefined,
+          offset: args.offset as number | undefined,
+          orderBy,
+        })
+      : buildSelect(table.schema, table.name, columns, {
+          where,
+          limit: args.limit as number | undefined,
+          offset: args.offset as number | undefined,
+          orderBy,
+        });
+
     const result = await ctx.client.query(selectQuery.sql, selectQuery.params);
     return result.rows;
   };
 
 const byPkResolver = (table: Table, pk: Column) =>
   async (parent: unknown, args: Record<string, unknown>, ctx: ResolverContext) => {
-    const selectQuery = buildSelect(table.schema, table.name, buildColumnsSelect(table), {
-      where: { [pk.name]: args[pk.name] },
-    });
+    const columns = buildColumnsSelect(table);
+    const selectQuery = table.permissions?.selectFilter
+      ? buildSelectWithFilter(table.schema, table.name, "select_filter", columns, {
+          where: { [pk.name]: args[pk.name] },
+        })
+      : buildSelect(table.schema, table.name, columns, {
+          where: { [pk.name]: args[pk.name] },
+        });
     const result = await ctx.client.query(selectQuery.sql, selectQuery.params);
     return result.rows[0] ?? null;
   };
@@ -268,7 +287,11 @@ const updateResolver = (table: Table, pk: Column) =>
     const pkValue = input[pk.name];
     const values = { ...input };
     delete values[pk.name];
-    const updateQuery = buildUpdate(table.schema, table.name, { column: pk.name, value: pkValue }, values);
+
+    const updateQuery = table.permissions?.updateFilter
+      ? buildUpdateWithFilter(table.schema, table.name, "update_filter", { column: pk.name, value: pkValue }, values)
+      : buildUpdate(table.schema, table.name, { column: pk.name, value: pkValue }, values);
+
     const result = await ctx.client.query(updateQuery.sql, updateQuery.params);
     return result.rows[0] ?? null;
   };
@@ -276,7 +299,11 @@ const updateResolver = (table: Table, pk: Column) =>
 const deleteResolver = (table: Table, pk: Column) =>
   async (parent: unknown, args: Record<string, unknown>, ctx: ResolverContext) => {
     const pkValue = args[pk.name];
-    const deleteQuery = buildDelete(table.schema, table.name, { column: pk.name, value: pkValue });
+
+    const deleteQuery = table.permissions?.deleteFilter
+      ? buildDeleteWithFilter(table.schema, table.name, "delete_filter", { column: pk.name, value: pkValue })
+      : buildDelete(table.schema, table.name, { column: pk.name, value: pkValue });
+
     const result = await ctx.client.query(deleteQuery.sql, deleteQuery.params);
     return result.rows[0] ?? null;
   };
@@ -288,17 +315,24 @@ const fkResolver = (fk: ForeignKey, targetTable: Table, isToOne: boolean) =>
     if (parentValue === null || parentValue === undefined) return null;
 
     const targetColumns = buildColumnsSelect(targetTable);
-    const selectQuery = buildSelectByFk(
-      targetTable.schema,
-      targetTable.name,
-      targetColumns,
-      fk.toColumn,
-      parentValue,
-      {
-        limit: args.limit as number | undefined,
-        offset: args.offset as number | undefined,
-      }
-    );
+    const selectQuery = targetTable.permissions?.selectFilter
+      ? buildSelectByFkWithFilter(
+          targetTable.schema,
+          targetTable.name,
+          "select_filter",
+          targetColumns,
+          fk.toColumn,
+          parentValue,
+          {
+            limit: args.limit as number | undefined,
+            offset: args.offset as number | undefined,
+          }
+        )
+      : buildSelectByFk(targetTable.schema, targetTable.name, targetColumns, fk.toColumn, parentValue, {
+          limit: args.limit as number | undefined,
+          offset: args.offset as number | undefined,
+        });
+
     const result = await ctx.client.query(selectQuery.sql, selectQuery.params);
 
     if (isToOne) {
@@ -317,17 +351,24 @@ const reverseFkResolver = (fk: ForeignKey, sourceTable: Table) =>
     if (parentValue === null || parentValue === undefined) return [];
 
     const sourceColumns = buildColumnsSelect(sourceTable);
-    const selectQuery = buildSelectByFk(
-      sourceTable.schema,
-      sourceTable.name,
-      sourceColumns,
-      fk.fromColumn,
-      parentValue,
-      {
-        limit: args.limit as number | undefined,
-        offset: args.offset as number | undefined,
-      }
-    );
+    const selectQuery = sourceTable.permissions?.selectFilter
+      ? buildSelectByFkWithFilter(
+          sourceTable.schema,
+          sourceTable.name,
+          "select_filter",
+          sourceColumns,
+          fk.fromColumn,
+          parentValue,
+          {
+            limit: args.limit as number | undefined,
+            offset: args.offset as number | undefined,
+          }
+        )
+      : buildSelectByFk(sourceTable.schema, sourceTable.name, sourceColumns, fk.fromColumn, parentValue, {
+          limit: args.limit as number | undefined,
+          offset: args.offset as number | undefined,
+        });
+
     const result = await ctx.client.query(selectQuery.sql, selectQuery.params);
     return result.rows;
   };

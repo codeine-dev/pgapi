@@ -8,6 +8,7 @@ import { buildSchema } from "./graphql";
 import { startServer } from "./server";
 import { createClient } from "./db";
 import { log, setLogLevel } from "./logger";
+import { ensureCheckTriggers } from "./permissions";
 import type { SchemaModel } from "./schema";
 import type { AuthConfig } from "./auth";
 
@@ -34,6 +35,15 @@ const run = (): TE.TaskEither<Error, void> => {
         TE.Do,
         TE.bind("schemaModel", () => readSchema(dbEnv, args.schemas)),
         TE.bind("client", () => createClient(dbEnv)),
+        TE.chain(({ schemaModel, client: c }) =>
+          pipe(
+            TE.tryCatch(
+              () => ensureCheckTriggers(c, schemaModel.tables),
+              (e) => (e instanceof Error ? e : new Error(String(e)))
+            ),
+            TE.map(() => ({ schemaModel, client: c }))
+          )
+        ),
         TE.bind("graphqlSchema", ({ schemaModel }) => TE.right(buildSchema(schemaModel))),
         TE.chain(({ graphqlSchema, client: c, schemaModel }) => {
           client = c;

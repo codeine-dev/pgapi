@@ -7,6 +7,7 @@ import { createClient } from "./db";
 import * as TE from "fp-ts/TaskEither";
 import { pipe } from "fp-ts/function";
 import { authenticate, type AuthConfig } from "./auth";
+import { ensureCheckTriggers } from "./permissions";
 
 const TEST_DB_URL = "postgres://postgres:postgres@localhost:5432/postgres";
 
@@ -40,7 +41,7 @@ const executeQuery = async (
     schema: ctx.schema,
     source: query,
     variableValues: variables,
-    contextValue: { client: ctx.client, model: { tables: [], views: [], foreignKeys: [], enums: {} }, auth: { isAuthenticated: false } },
+    contextValue: { client: ctx.client, model: { tables: [], views: [], foreignKeys: [], enums: {}, hasPermissions: false }, auth: { isAuthenticated: false } },
   });
 };
 
@@ -58,6 +59,13 @@ let ctx: TestContext;
 
 beforeAll(async () => {
   ctx = await createTestContext();
+
+  // Clean up any leftover permission triggers from previous test runs
+  await ctx.client.query("DROP TRIGGER IF EXISTS pgapi_insert_check ON users");
+  await ctx.client.query("DROP TRIGGER IF EXISTS pgapi_update_check ON users");
+  await ctx.client.query("DROP FUNCTION IF EXISTS pgapi_check_trigger()");
+  await ctx.client.query("DROP FUNCTION IF EXISTS public.users_select_filter()");
+  await ctx.client.query("DROP FUNCTION IF EXISTS public.users_insert_check(jsonb, jsonb, jsonb)");
 });
 
 afterAll(async () => {
@@ -309,5 +317,139 @@ describe("Auth Integration", () => {
     const result = await executeQuery(ctx, `{ users { id name } }`);
     expect(result.errors).toBeUndefined();
     expect(result.data?.users).toBeDefined();
+  });
+});
+
+describe("Permission Functions", () => {
+  const permClient = new Client({ connectionString: TEST_DB_URL });
+
+  beforeAll(async () => {
+    await permClient.connect();
+
+    // Clean up any leftover triggers from previous runs
+    await permClient.query("DROP TRIGGER IF EXISTS pgapi_insert_check ON users");
+    await permClient.query("DROP TRIGGER IF EXISTS pgapi_update_check ON users");
+    await permClient.query("DROP FUNCTION IF EXISTS pgapi_check_trigger()");
+
+    await permClient.query(`
+      CREATE OR REPLACE FUNCTION public.users_select_filter()
+      RETURNS SETOF public.users AS $$
+        SELECT * FROM public.users WHERE role = 'admin' OR id = 1
+      $$ LANGUAGE sql STABLE
+    `);
+
+    await permClient.query(`
+      CREATE OR REPLACE FUNCTION public.users_insert_check(_sub jsonb, _role jsonb, _row jsonb)
+      RETURNS boolean AS $$
+        SELECT (_row->>'name') != 'forbidden'
+      $$ LANGUAGE sql STABLE
+    `);
+
+    const dbEnv = { connectionString: TEST_DB_URL };
+    const schemaResult = await readSchema(dbEnv, ["public"])();
+    if (schemaResult._tag === "Right") {
+      await ensureCheckTriggers(permClient, schemaResult.right.tables);
+    }
+  });
+
+  afterAll(async () => {
+    await permClient.query("DROP TRIGGER IF EXISTS pgapi_insert_check ON users");
+    await permClient.query("DROP TRIGGER IF EXISTS pgapi_update_check ON users");
+    await permClient.query("DROP FUNCTION IF EXISTS pgapi_check_trigger()");
+    await permClient.query("DROP FUNCTION IF EXISTS public.users_select_filter()");
+    await permClient.query("DROP FUNCTION IF EXISTS public.users_insert_check(jsonb, jsonb, jsonb)");
+    await permClient.end();
+  });
+
+  it("select filter limits returned rows", async () => {
+    // Insert test data directly, bypassing triggers
+    await permClient.query("DELETE FROM comments");
+    await permClient.query("DELETE FROM posts");
+    await permClient.query("DELETE FROM users");
+    await permClient.query("INSERT INTO users (id, name, email, role) VALUES (1, 'Alice', 'alice@test.com', 'admin'), (2, 'Bob', 'bob@test.com', 'user'), (3, 'Charlie', 'charlie@test.com', 'user')");
+
+    const dbEnv = { connectionString: TEST_DB_URL };
+    const schemaResult = await readSchema(dbEnv, ["public"])();
+    if (schemaResult._tag === "Left") throw new Error("Failed to read schema");
+
+    const schema = buildSchema(schemaResult.right);
+    const testClient = new Client({ connectionString: TEST_DB_URL });
+    await testClient.connect();
+
+    try {
+      const result = await graphql({
+        schema,
+        source: `{ users { id name role } }`,
+        contextValue: {
+          client: testClient,
+          model: schemaResult.right,
+          auth: { isAuthenticated: true, user: { sub: "u1", role: "admin" } },
+        },
+      });
+
+      expect(result.errors).toBeUndefined();
+      const users = result.data?.users as Array<{ id: number; name: string; role: string }>;
+      for (const user of users) {
+        expect(user.role === "admin" || user.id === 1).toBe(true);
+      }
+    } finally {
+      await testClient.end();
+    }
+  });
+
+  it("insert check rejects invalid rows", async () => {
+    const dbEnv = { connectionString: TEST_DB_URL };
+    const schemaResult = await readSchema(dbEnv, ["public"])();
+    if (schemaResult._tag === "Left") throw new Error("Failed to read schema");
+
+    const schema = buildSchema(schemaResult.right);
+    const testClient = new Client({ connectionString: TEST_DB_URL });
+    await testClient.connect();
+
+    try {
+      const result = await graphql({
+        schema,
+        source: `mutation { insertUsers(input: { name: "forbidden", email: "bad@test.com", role: "user" }) { id name } }`,
+        contextValue: {
+          client: testClient,
+          model: schemaResult.right,
+          auth: { isAuthenticated: true, user: { sub: "u1", role: "admin" } },
+        },
+      });
+
+      expect(result.errors).toBeDefined();
+      expect(result.errors?.[0]?.message).toContain("Permission denied");
+    } finally {
+      await testClient.end();
+    }
+  });
+
+  it("insert check allows valid rows", async () => {
+    const dbEnv = { connectionString: TEST_DB_URL };
+    const schemaResult = await readSchema(dbEnv, ["public"])();
+    if (schemaResult._tag === "Left") throw new Error("Failed to read schema");
+
+    const schema = buildSchema(schemaResult.right);
+    const testClient = new Client({ connectionString: TEST_DB_URL });
+    await testClient.connect();
+
+    try {
+      const result = await graphql({
+        schema,
+        source: `mutation { insertUsers(input: { name: "allowed", email: "good@test.com", role: "user" }) { id name } }`,
+        contextValue: {
+          client: testClient,
+          model: schemaResult.right,
+          auth: { isAuthenticated: true, user: { sub: "u1", role: "admin" } },
+        },
+      });
+
+      expect(result.errors).toBeUndefined();
+      expect(result.data?.insertUsers).toBeDefined();
+
+      await testClient.query("DELETE FROM users WHERE name = 'allowed'");
+    } finally {
+      await testClient.end();
+    }
   });
 });
