@@ -19,16 +19,34 @@
 --   comments_select_filter - comments visible if the parent post is visible
 --   comments_insert_check  - comment author must match the authenticated user
 --
--- Run this script against your Postgres database before starting pgapi.
+-- This script is idempotent and can be run repeatedly.
 -- pgapi will discover the permission functions at startup and enforce them.
+-- =============================================================================
+
+
 -- ============================================================================
+-- Drop existing objects (fresh start)
+-- ============================================================================
+
+DROP FUNCTION IF EXISTS comments_insert_check(text, text, jsonb);
+DROP FUNCTION IF EXISTS comments_select_filter();
+DROP FUNCTION IF EXISTS posts_update_check(text, text, jsonb);
+DROP FUNCTION IF EXISTS posts_insert_check(text, text, jsonb);
+DROP FUNCTION IF EXISTS posts_update_filter();
+DROP FUNCTION IF EXISTS posts_delete_filter();
+DROP FUNCTION IF EXISTS posts_select_filter();
+
+DROP TABLE IF EXISTS comments;
+DROP TABLE IF EXISTS posts;
+DROP TABLE IF EXISTS categories;
+DROP TABLE IF EXISTS users;
 
 
 -- ============================================================================
 -- Tables
 -- ============================================================================
 
-CREATE TABLE users (
+CREATE TABLE IF NOT EXISTS users (
     id         serial PRIMARY KEY,
     name       text NOT NULL,
     email      text NOT NULL UNIQUE,
@@ -41,7 +59,7 @@ COMMENT ON TABLE users IS 'Blog user accounts';
 COMMENT ON COLUMN users.role IS 'Permission level: admin, editor, author, reader';
 
 
-CREATE TABLE categories (
+CREATE TABLE IF NOT EXISTS categories (
     id   serial PRIMARY KEY,
     name text NOT NULL UNIQUE
 );
@@ -49,7 +67,7 @@ CREATE TABLE categories (
 COMMENT ON TABLE categories IS 'Post categories';
 
 
-CREATE TABLE posts (
+CREATE TABLE IF NOT EXISTS posts (
     id          serial PRIMARY KEY,
     title       text NOT NULL,
     body        text,
@@ -63,7 +81,7 @@ CREATE TABLE posts (
 COMMENT ON TABLE posts IS 'Blog articles. published=false posts are private drafts.';
 
 
-CREATE TABLE comments (
+CREATE TABLE IF NOT EXISTS comments (
     id         serial PRIMARY KEY,
     body       text NOT NULL,
     post_id    int NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
@@ -108,11 +126,12 @@ COMMENT ON TABLE comments IS 'Reader comments on published posts';
 --   FROM "public.posts_select_filter"()
 --   WHERE <your where clause>
 
-CREATE FUNCTION posts_select_filter()
+CREATE OR REPLACE FUNCTION posts_select_filter()
 RETURNS SETOF posts AS $$
     SELECT * FROM posts
     WHERE published = true
-       OR owned_by = current_setting('x_pgapi.sub')::int
+       OR owned_by = CASE WHEN current_setting('x_pgapi.sub') ~ '^\d+$'
+                          THEN current_setting('x_pgapi.sub')::int END
 $$ LANGUAGE sql STABLE;
 
 
@@ -126,10 +145,11 @@ $$ LANGUAGE sql STABLE;
 --   WHERE "id" = $1
 --   RETURNING *
 
-CREATE FUNCTION posts_delete_filter()
+CREATE OR REPLACE FUNCTION posts_delete_filter()
 RETURNS SETOF posts AS $$
     SELECT * FROM posts
-    WHERE owned_by = current_setting('x_pgapi.sub')::int
+    WHERE owned_by = CASE WHEN current_setting('x_pgapi.sub') ~ '^\d+$'
+                          THEN current_setting('x_pgapi.sub')::int END
        OR current_setting('x_pgapi.role') = 'admin'
 $$ LANGUAGE sql STABLE;
 
@@ -146,10 +166,11 @@ $$ LANGUAGE sql STABLE;
 --     AND "id" IN (SELECT "id" FROM "public.posts_update_filter"())
 --   RETURNING *
 
-CREATE FUNCTION posts_update_filter()
+CREATE OR REPLACE FUNCTION posts_update_filter()
 RETURNS SETOF posts AS $$
     SELECT * FROM posts
-    WHERE owned_by = current_setting('x_pgapi.sub')::int
+    WHERE owned_by = CASE WHEN current_setting('x_pgapi.sub') ~ '^\d+$'
+                          THEN current_setting('x_pgapi.sub')::int END
        OR current_setting('x_pgapi.role') IN ('admin', 'editor')
 $$ LANGUAGE sql STABLE;
 
@@ -166,10 +187,10 @@ $$ LANGUAGE sql STABLE;
 --
 -- The row contains all column values. Access them with (_row->> 'column').
 
-CREATE FUNCTION posts_insert_check(_sub text, _role text, _row jsonb)
+CREATE OR REPLACE FUNCTION posts_insert_check(_sub text, _role text, _row jsonb)
 RETURNS boolean AS $$
     -- Authors and editors can create posts, but only as themselves
-    SELECT (_row ->> 'owned_by')::int = _sub::int
+    SELECT (_row ->> 'owned_by')::int = CASE WHEN _sub ~ '^\d+$' THEN _sub::int END
 $$ LANGUAGE sql STABLE;
 
 
@@ -179,7 +200,7 @@ $$ LANGUAGE sql STABLE;
 --
 -- Use case: prevent changing the post owner after creation.
 
-CREATE FUNCTION posts_update_check(_sub text, _role text, _row jsonb)
+CREATE OR REPLACE FUNCTION posts_update_check(_sub text, _role text, _row jsonb)
 RETURNS boolean AS $$
     -- The row must still be owned by the same user who originally owned it.
     -- (In practice, the update_filter already restricts this, but the check
@@ -196,12 +217,13 @@ $$ LANGUAGE sql STABLE;
 -- Comments are visible if their parent post is visible.
 -- This reuses the posts_select_filter logic via a subquery.
 
-CREATE FUNCTION comments_select_filter()
+CREATE OR REPLACE FUNCTION comments_select_filter()
 RETURNS SETOF comments AS $$
     SELECT c.* FROM comments c
     JOIN posts p ON c.post_id = p.id
     WHERE p.published = true
-       OR p.owned_by = current_setting('x_pgapi.sub')::int
+       OR p.owned_by = CASE WHEN current_setting('x_pgapi.sub') ~ '^\d+$'
+                            THEN current_setting('x_pgapi.sub')::int END
 $$ LANGUAGE sql STABLE;
 
 
@@ -209,10 +231,42 @@ $$ LANGUAGE sql STABLE;
 -- The comment author must match the authenticated user.
 -- Prevents one user from posting comments as another user.
 
-CREATE FUNCTION comments_insert_check(_sub text, _role text, _row jsonb)
+CREATE OR REPLACE FUNCTION comments_insert_check(_sub text, _role text, _row jsonb)
 RETURNS boolean AS $$
-    SELECT (_row ->> 'author_id')::int = _sub::int
+    SELECT (_row ->> 'author_id')::int = CASE WHEN _sub ~ '^\d+$' THEN _sub::int END
 $$ LANGUAGE sql STABLE;
+
+
+-- ============================================================================
+-- Example data
+-- ============================================================================
+
+INSERT INTO users (id, name, email, role) VALUES
+    (1, 'Alice',   'alice@example.com',   'admin'),
+    (2, 'Bob',     'bob@example.com',     'editor'),
+    (3, 'Charlie', 'charlie@example.com', 'author'),
+    (4, 'Diana',   'diana@example.com',   'reader');
+SELECT setval('users_id_seq', 4);
+
+INSERT INTO categories (id, name) VALUES
+    (1, 'General'),
+    (2, 'Tech'),
+    (3, 'Life');
+SELECT setval('categories_id_seq', 3);
+
+INSERT INTO posts (id, title, body, published, category_id, owned_by) VALUES
+    (1, 'Welcome to the blog',     'This is our first post.',                    true,  1, 1),
+    (2, 'Draft: Future plans',     'Coming soon...',                             false, 1, 3),
+    (3, 'PostgreSQL tips',         'Use EXPLAIN ANALYZE.',                       true,  2, 2),
+    (4, 'Draft: Secret project',   'Not ready yet.',                             false, 2, 3),
+    (5, 'Editorial guidelines',    'How we write around here.',                  true,  1, 2);
+SELECT setval('posts_id_seq', 5);
+
+INSERT INTO comments (id, body, post_id, author_id) VALUES
+    (1, 'Great post!',              1, 4),
+    (2, 'Very helpful, thanks.',    3, 4),
+    (3, 'Looking forward to it.',   1, 3);
+SELECT setval('comments_id_seq', 3);
 
 
 -- ============================================================================
