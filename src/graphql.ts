@@ -153,8 +153,11 @@ const buildInsertInputType = (table: Table): GraphQLInputObjectType => {
 
   for (const col of table.columns) {
     if (col.isPrimaryKey) continue;
-    const baseType = getGraphQLType(col);
-    fields[col.name] = { type: baseType };
+    if (col.defaultValue) {
+      fields[col.name] = { type: resolveScalarType(col.type) };
+    } else {
+      fields[col.name] = { type: getGraphQLType(col) };
+    }
   }
 
   return new GraphQLInputObjectType({
