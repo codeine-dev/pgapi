@@ -255,18 +255,29 @@ INSERT INTO categories (id, name) VALUES
 SELECT setval('categories_id_seq', 3);
 
 INSERT INTO posts (id, title, body, published, category_id, owned_by) VALUES
-    (1, 'Welcome to the blog',     'This is our first post.',                    true,  1, 1),
-    (2, 'Draft: Future plans',     'Coming soon...',                             false, 1, 3),
-    (3, 'PostgreSQL tips',         'Use EXPLAIN ANALYZE.',                       true,  2, 2),
-    (4, 'Draft: Secret project',   'Not ready yet.',                             false, 2, 3),
-    (5, 'Editorial guidelines',    'How we write around here.',                  true,  1, 2);
-SELECT setval('posts_id_seq', 5);
+    (1, 'Welcome to the blog',       'This is our first post.',                    true,  1, 1),
+    (2, 'Draft: Future plans',       'Coming soon...',                             false, 1, 3),
+    (3, 'PostgreSQL tips',           'Use EXPLAIN ANALYZE.',                       true,  2, 2),
+    (4, 'Draft: Secret project',     'Not ready yet.',                             false, 2, 3),
+    (5, 'Editorial guidelines',      'How we write around here.',                  true,  1, 2),
+    (6, 'Draft: Alice private notes','Thoughts for internal review.',              false, 1, 1),
+    (7, 'Draft: Upcoming features',  'New features in the pipeline.',              false, 2, 2),
+    (8, 'A guide to writing',        'Tips and tricks for better writing.',        true,  1, 3),
+    (9, 'A reader perspective',      'Thoughts on the blog from a regular reader.',true,  3, 4),
+    (10,'Draft: My private thoughts','Personal reflections.',                       false, 3, 4);
+SELECT setval('posts_id_seq', 10);
 
 INSERT INTO comments (id, body, post_id, author_id) VALUES
-    (1, 'Great post!',              1, 4),
-    (2, 'Very helpful, thanks.',    3, 4),
-    (3, 'Looking forward to it.',   1, 3);
-SELECT setval('comments_id_seq', 3);
+    (1, 'Great post!',                 1, 4),
+    (2, 'Very helpful, thanks.',       3, 4),
+    (3, 'Looking forward to it.',      1, 3),
+    (4, 'Great insights!',             8, 4),
+    (5, 'Welcome to the blog!',        9, 2),
+    (6, 'Well written!',               8, 2),
+    (7, 'Internal note for Alice.',    6, 2),
+    (8, 'Bob, check this out.',        7, 3),
+    (9, 'Nice draft Diana!',           10,1);
+SELECT setval('comments_id_seq', 9);
 
 
 -- ============================================================================

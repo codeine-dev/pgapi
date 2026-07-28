@@ -196,7 +196,7 @@ const handleConsoleRequest = (res: ServerResponse): void => {
 <script src="/_static/graphiql.js"></script>
 <script>
 const fetcher = GraphiQL.createFetcher({ url: '/graphql' });
-ReactDOM.render(React.createElement(GraphiQL, { fetcher }), document.getElementById('graphiql'));
+ReactDOM.render(React.createElement(GraphiQL, { fetcher, shouldPersistHeaders: true }), document.getElementById('graphiql'));
 </script></body></html>`);
 };
 
