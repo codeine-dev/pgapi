@@ -1,4 +1,4 @@
-import { GraphQLSchema, graphql } from "graphql";
+import { GraphQLSchema, graphql, parse, type OperationDefinitionNode } from "graphql";
 import { createServer, IncomingMessage, ServerResponse } from "http";
 import { readFileSync } from "fs";
 import { join } from "path";
@@ -22,7 +22,8 @@ export interface ServerEnv {
 
 type RequestError =
   | { _tag: "ParseError"; message: string }
-  | { _tag: "GraphqlError"; message: string };
+  | { _tag: "GraphqlError"; message: string }
+  | { _tag: "MutationError"; message: string };
 
 const readBody = (req: IncomingMessage): TE.TaskEither<RequestError, string> =>
   TE.tryCatch(
@@ -80,6 +81,32 @@ const executeGraphql = (env: ServerEnv, authContext: AuthContext) => (parsed: { 
     },
     (e) => ({ _tag: "GraphqlError" as const, message: String(e) })
   );
+
+const validateQueryOperation = (parsed: { query?: string }): E.Either<RequestError, void> => {
+  if (!parsed.query) {
+    return E.left({ _tag: "ParseError", message: "query is required" });
+  }
+
+  try {
+    const document = parse(parsed.query);
+    const operations = document.definitions.filter(
+      (def): def is OperationDefinitionNode => def.kind === "OperationDefinition"
+    );
+
+    for (const op of operations) {
+      if (op.operation !== "query") {
+        return E.left({
+          _tag: "MutationError",
+          message: `QUERY method only supports query operations, not ${op.operation}`,
+        });
+      }
+    }
+
+    return E.right(undefined);
+  } catch (e) {
+    return E.left({ _tag: "ParseError", message: String(e) });
+  }
+};
 
 const extractHeaders = (req: IncomingMessage): Record<string, string | undefined> => {
   const headers: Record<string, string | undefined> = {};
@@ -154,6 +181,40 @@ const handleGraphqlGet = (env: ServerEnv, req: IncomingMessage, res: ServerRespo
   )();
 };
 
+const handleGraphqlQuery = (env: ServerEnv, req: IncomingMessage, res: ServerResponse): void => {
+  const headers = extractHeaders(req);
+  const authResult = authenticate(env.authConfig, headers);
+
+  if (E.isLeft(authResult)) {
+    res.writeHead(401, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: formatAuthError(authResult.left) }));
+    return;
+  }
+
+  const authContext = authResult.right;
+
+  pipe(
+    readBody(req),
+    TE.chain(parseJson),
+    TE.chainFirst((parsed) => TE.fromEither(validateQueryOperation(parsed))),
+    TE.chain(executeGraphql(env, authContext)),
+    TE.match(
+      (error) => {
+        const status = error._tag === "MutationError" ? 405 : 400;
+        res.writeHead(status, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: error.message }));
+      },
+      (result) => {
+        res.writeHead(200, {
+          "Content-Type": "application/json",
+          "Cache-Control": "public, no-cache",
+        });
+        res.end(JSON.stringify(result));
+      }
+    )
+  )();
+};
+
 const nmDir = join(import.meta.dir, "..", "node_modules");
 
 const staticFiles: Record<string, { content: Buffer; contentType: string }> = {
@@ -200,7 +261,7 @@ ReactDOM.render(React.createElement(GraphiQL, { fetcher, shouldPersistHeaders: t
 </script></body></html>`);
 };
 
-const handleRequest = (env: ServerEnv) => (req: IncomingMessage, res: ServerResponse) => {
+export const createRequestHandler = (env: ServerEnv) => (req: IncomingMessage, res: ServerResponse) => {
   const startTime = Date.now();
   const url = pipe(O.fromNullable(req.url), O.getOrElse(() => "/"));
   const path = url.split("?")[0] ?? url;
@@ -214,6 +275,8 @@ const handleRequest = (env: ServerEnv) => (req: IncomingMessage, res: ServerResp
 
   if (path === "/graphql" && req.method === "POST") {
     handleGraphqlPost(env, req, res);
+  } else if (path === "/graphql" && req.method === "QUERY") {
+    handleGraphqlQuery(env, req, res);
   } else if (path === "/graphql" && req.method === "GET") {
     handleGraphqlGet(env, req, res);
   } else if (path === "/console" && env.enableConsole) {
@@ -233,7 +296,7 @@ export const startServer = (env: ServerEnv): TE.TaskEither<Error, void> =>
   TE.tryCatch(
     () =>
       new Promise<void>((resolve, reject) => {
-        const server = createServer(handleRequest(env));
+        const server = createServer(createRequestHandler(env));
 
         const shutdown = () => {
           log.info("Shutting down...");
