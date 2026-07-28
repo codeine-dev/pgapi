@@ -1,0 +1,66 @@
+name: Release
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    name: Build binary
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: pgapi-linux-amd64
+          - os: macos-latest
+            artifact: pgapi-darwin-arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun run build
+      - run: mv pgapi ${{ matrix.artifact }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - run: |
+          gh release create "${{ github.ref_name }}" \
+            artifacts/pgapi-linux-amd64/pgapi-linux-amd64 \
+            artifacts/pgapi-darwin-arm64/pgapi-darwin-arm64 \
+            --title "${{ github.ref_name }}" \
+            --generate-notes
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  docker:
+    name: Build and push Docker image
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - name: Build and push
+        run: |
+          docker build \
+            --build-arg VERSION="${{ github.ref_name }}" \
+            -t ghcr.io/codeine-dev/pgapi:"${{ github.ref_name }}" \
+            -t ghcr.io/codeine-dev/pgapi:latest \
+            .
+          docker push ghcr.io/codeine-dev/pgapi --all-tags

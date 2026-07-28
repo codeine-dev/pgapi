@@ -1,14 +1,17 @@
-FROM oven/bun:1 AS build
-WORKDIR /app
-COPY package.json bun.lock ./
-RUN bun install --frozen-lockfile
-COPY tsconfig.json ./
-COPY src/ ./src/
-RUN bun run build
-
 FROM debian:bookworm-slim
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
-WORKDIR /app
-COPY --from=build /app/pgapi .
+
+ARG VERSION=latest
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN INSTALL_SCRIPT="https://raw.githubusercontent.com/codeine-dev/pgapi/main/install.sh" && \
+    if [ "$VERSION" = "latest" ]; then \
+      curl -fsSL "$INSTALL_SCRIPT" | bash; \
+    else \
+      curl -fsSL "$INSTALL_SCRIPT" | bash -s -- --version "$VERSION"; \
+    fi
+
 EXPOSE 3000
-ENTRYPOINT ["./pgapi"]
+ENTRYPOINT ["pgapi"]
