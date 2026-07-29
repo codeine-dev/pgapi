@@ -10,6 +10,7 @@
     "local": "bun run src/index.ts --connection-string postgres://postgres:postgres@localhost:5432/postgres --schema public --console --jwt-secret a-string-secret-at-least-256-bits-long",
     "build": "bun build src/index.ts --compile --outfile pgapi",
     "test": "vitest run",
+    "test:unit": "vitest run --exclude 'src/{integration,permissions}.test.ts'",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"
   },
