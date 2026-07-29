@@ -23,6 +23,20 @@ The bind address to use. Default: 127.0.0.1
 
 This boolean flag gates the serving of a Graphiql frontend at the root "/console" path.
 
+--oauth-issuer <URL>
+
+The issuer URL of an OAuth 2.0 / OpenID Connect provider. When set, pgapi fetches the provider's OpenID configuration via the discovery endpoint (`/.well-known/openid-configuration`) and uses the published JWKS to validate Bearer tokens on every request. Supports RS256, RS384, RS512, ES256, ES384, and ES512 signatures.
+
+Requires authentication (same as `--jwt-secret`). Override with `--auth optional`.
+
+--oauth-audience <string>
+
+Optional expected value for the `aud` (audience) claim in the JWT. If the token contains an `aud` claim, it must match this value. Accepts both string and array audiences (matches if the array includes the expected value).
+
+--oauth-clock-skew <seconds>
+
+Optional clock skew tolerance in seconds (default 10). Allows a token's `exp` and `iat` claims to differ from the server clock by up to this amount, which helps with clock drift between the IdP and pgapi.
+
 ## Operation
 
 On startup, the tool should connect to the database and read the entire schema, plus any related schemas. After this is should build a memory model of the schema and create GraphQL schema from this model. When it is complete, it should serve this GrapgQL schema as an endpoint at "http://<host>:<port>/graphql". If the "--console" flag is present then also serve an instance of Graphiql at "http://<host>:<port>/console".
@@ -211,6 +225,59 @@ When no authenticated user is present, both are set to `''`.
 | `{table}_update_check(sub, role, row)` | 2 text + jsonb | `boolean` | Validates modified rows |
 
 Only define the functions you need. A missing function means no restriction for that operation.
+
+## OAuth 2.0 / OpenID Connect Authentication
+
+When you start pgapi with `--oauth-issuer <URL>`, it performs OpenID Connect Discovery to obtain the provider's JWKS (JSON Web Key Set) and validates every incoming Bearer token against it.
+
+### Flow
+
+1. **Discovery** — On startup, pgapi fetches `{issuer}/.well-known/openid-configuration` to find the `jwks_uri`.
+2. **Key Retrieval** — pgapi fetches the JWKS from the `jwks_uri` and caches the keys in memory.
+3. **Token Validation** — On each request, pgapi:
+   - Extracts the Bearer token from the `Authorization` header.
+   - Decodes the JWT header to find the `kid` (key ID) and `alg` (algorithm).
+   - Looks up the matching key in the cached JWKS.
+   - Verifies the RSA signature using Web Crypto.
+   - Validates `exp` (not expired), `iat` (not from the future), and `iss` (matches the issuer, if present).
+
+### Supported Algorithms
+
+- **RSA**: RS256, RS384, RS512
+- **ECDSA**: ES256 (P-256), ES384 (P-384), ES512 (P-521)
+
+### Key Rotation
+
+JWKS keys are refreshed automatically:
+- **Periodic refresh** every 60 minutes
+- **On-demand refresh** — if a token's `kid` isn't found in the cached keys, pgapi fetches fresh keys before rejecting
+
+### Token Claims Validation
+
+| Claim | Check | Configurable |
+|-------|-------|-------------|
+| `exp` | Must be after current time | `--oauth-clock-skew` for leeway |
+| `iat` | Must not be in the future | `--oauth-clock-skew` for leeway |
+| `iss` | Must match the issuer (if present) | Derived from discovery |
+| `aud` | Must match expected value (if configured) | `--oauth-audience` |
+| `alg` | Must be a supported asymmetric algorithm | `none` is rejected |
+| `kid` | Must match a key in the JWKS | Auto-refresh on miss |
+
+### Auth Failure Logging
+
+All OIDC validation failures are logged server-side at the `warn` level with the `kid`, a truncated token prefix, and the error message — making it possible to diagnose token issues in production without reproducing them.
+
+### Example
+
+```bash
+pgapi \
+  --connection-string postgres://localhost/mydb \
+  --oauth-issuer https://accounts.google.com \
+  --oauth-audience my-client-id \
+  --oauth-clock-skew 10
+```
+
+You can combine `--oauth-issuer` with `--api-key-header` to support both token and API key authentication. When both are present and a Bearer token is provided, OIDC validation takes priority.
 
 ## Agent Guide
 

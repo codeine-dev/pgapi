@@ -116,9 +116,9 @@ const extractHeaders = (req: IncomingMessage): Record<string, string | undefined
   return headers;
 };
 
-const handleGraphqlPost = (env: ServerEnv, req: IncomingMessage, res: ServerResponse): void => {
+const handleGraphqlPost = async (env: ServerEnv, req: IncomingMessage, res: ServerResponse): Promise<void> => {
   const headers = extractHeaders(req);
-  const authResult = authenticate(env.authConfig, headers);
+  const authResult = await authenticate(env.authConfig, headers);
 
   if (E.isLeft(authResult)) {
     res.writeHead(401, { "Content-Type": "application/json" });
@@ -145,7 +145,7 @@ const handleGraphqlPost = (env: ServerEnv, req: IncomingMessage, res: ServerResp
   )();
 };
 
-const handleGraphqlGet = (env: ServerEnv, req: IncomingMessage, res: ServerResponse): void => {
+const handleGraphqlGet = async (env: ServerEnv, req: IncomingMessage, res: ServerResponse): Promise<void> => {
   const url = req.url ?? "/";
   const parsed = parseQueryParams(url);
 
@@ -156,7 +156,7 @@ const handleGraphqlGet = (env: ServerEnv, req: IncomingMessage, res: ServerRespo
   }
 
   const headers = extractHeaders(req);
-  const authResult = authenticate(env.authConfig, headers);
+  const authResult = await authenticate(env.authConfig, headers);
 
   if (E.isLeft(authResult)) {
     res.writeHead(401, { "Content-Type": "application/json" });
@@ -181,9 +181,9 @@ const handleGraphqlGet = (env: ServerEnv, req: IncomingMessage, res: ServerRespo
   )();
 };
 
-const handleGraphqlQuery = (env: ServerEnv, req: IncomingMessage, res: ServerResponse): void => {
+const handleGraphqlQuery = async (env: ServerEnv, req: IncomingMessage, res: ServerResponse): Promise<void> => {
   const headers = extractHeaders(req);
-  const authResult = authenticate(env.authConfig, headers);
+  const authResult = await authenticate(env.authConfig, headers);
 
   if (E.isLeft(authResult)) {
     res.writeHead(401, { "Content-Type": "application/json" });

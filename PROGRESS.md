@@ -55,7 +55,25 @@
 - [x] Dockerfile (multi-stage: build with bun, runtime on debian-slim)
 - [x] 34 tests passing, typecheck clean
 
-## Phase 5: Stretch Goals (in progress)
+## Phase 6: OAuth 2.0 / OpenID Connect (complete)
+
+- [x] CLI arg: --oauth-issuer for IdP URL
+- [x] OpenID Connect Discovery (fetches .well-known/openid-configuration)
+- [x] JWKS retrieval and caching at startup
+- [x] RS256/RS384/RS512 signature verification via Web Crypto
+- [x] Token validation: exp, iat, iss, kid matching, alg=none rejection
+- [x] On-demand JWKS refresh on unknown kid (auto-refetch before rejecting)
+- [x] Periodic JWKS refresh every 60 minutes
+- [x] ECDSA support (ES256/ES384/ES512)
+- [x] Audience claim validation (--oauth-audience)
+- [x] Clock skew tolerance (--oauth-clock-skew)
+- [x] Server-side auth failure logging (kid, token prefix, error message)
+- [x] Integration with existing auth middleware (prefers OIDC over jwtSecret)
+- [x] Tests: valid token, invalid signature, expired, issuer, audience, clock skew, ECDSA, unknown kid, alg=none, refresh
+- [x] Documentation in PROJECT.md
+- [x] 50 tests passing (auth + cli + codecs), typecheck clean (3 pre-existing errors)
+
+## Phase 5: Stretch Goals (complete)
 
 ### io-ts Runtime Validation
 

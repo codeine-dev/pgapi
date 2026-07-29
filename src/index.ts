@@ -9,8 +9,9 @@ import { startServer } from "./server";
 import { createClient } from "./db";
 import { log, setLogLevel } from "./logger";
 import { ensureCheckTriggers } from "./permissions";
+import { fetchOidcConfig, fetchJwks, refreshOidcJwks } from "./auth";
 import type { SchemaModel } from "./schema";
-import type { AuthConfig } from "./auth";
+import type { AuthConfig, OidcConfig } from "./auth";
 
 const run = (): TE.TaskEither<Error, void> => {
   setLogLevel("info");
@@ -22,14 +23,28 @@ const run = (): TE.TaskEither<Error, void> => {
     )),
     TE.chain((args) => {
       const dbEnv = { connectionString: args.connectionString };
-      const authConfig: AuthConfig = {
-        jwtSecret: args.jwtSecret,
-        apiKeyHeader: args.apiKeyHeader,
-        authMode: args.authMode,
-      };
       log.info("pgapi - Postgres GraphQL API");
 
       let client: Client | undefined;
+
+      const fetchOidc = (): TE.TaskEither<Error, OidcConfig | undefined> => {
+        if (!args.oauthIssuer) return TE.right(undefined);
+        return pipe(
+          fetchOidcConfig(args.oauthIssuer),
+          TE.chain(({ jwksUri, issuer }) =>
+            pipe(
+              fetchJwks(jwksUri),
+              TE.map((jwks) => ({
+                issuer,
+                jwks,
+                jwksUri,
+                audience: args.oauthAudience,
+                clockSkew: args.oauthClockSkew,
+              }))
+            )
+          )
+        );
+      };
 
       return pipe(
         TE.Do,
@@ -45,8 +60,29 @@ const run = (): TE.TaskEither<Error, void> => {
           )
         ),
         TE.bind("graphqlSchema", ({ schemaModel }) => TE.right(buildSchema(schemaModel))),
-        TE.chain(({ graphqlSchema, client: c, schemaModel }) => {
+        TE.bind("oauthConfig", () => fetchOidc()),
+        TE.chain(({ graphqlSchema, client: c, schemaModel, oauthConfig }) => {
           client = c;
+          const authConfig: AuthConfig = {
+            jwtSecret: args.jwtSecret,
+            apiKeyHeader: args.apiKeyHeader,
+            authMode: args.authMode,
+            oauthConfig: oauthConfig ?? undefined,
+          };
+
+          if (oauthConfig) {
+            const refreshInterval = 60 * 60 * 1000;
+            setInterval(async () => {
+              const result = await refreshOidcJwks(oauthConfig)();
+              if (E.isLeft(result)) {
+                log.warn("Failed to refresh JWKS", { error: result.left.message });
+              } else {
+                log.info("JWKS refreshed successfully");
+              }
+            }, refreshInterval);
+            log.info("JWKS refresh scheduled", { intervalMs: refreshInterval });
+          }
+
           return startServer({
             host: args.host,
             port: args.port,

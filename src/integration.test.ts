@@ -312,7 +312,7 @@ describe("Error Handling", () => {
 describe("Auth Integration", () => {
   it("passes auth context to resolver", async () => {
     const authConfig: AuthConfig = { authMode: "none" };
-    const authResult = authenticate(authConfig, {});
+    const authResult = await authenticate(authConfig, {});
     expect(authResult._tag).toBe("Right");
 
     const result = await executeQuery(ctx, `{ users { id name } }`);

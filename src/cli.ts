@@ -14,6 +14,9 @@ export const parseArgs = (args: string[]): E.Either<string, CliArgs> => {
     schemas: [],
     jwtSecret: undefined,
     apiKeyHeader: undefined,
+    oauthIssuer: undefined,
+    oauthAudience: undefined,
+    oauthClockSkew: undefined,
     authMode: "none",
   };
 
@@ -72,6 +75,33 @@ export const parseArgs = (args: string[]): E.Either<string, CliArgs> => {
         if (apiKeyVal === undefined) return E.left("--api-key-header requires a value");
         raw.apiKeyHeader = apiKeyVal;
         raw.authMode = "required";
+        break;
+      }
+      case "--oauth-issuer": {
+        i++;
+        if (i >= args.length) return E.left("--oauth-issuer requires a value");
+        const oauthVal = args[i];
+        if (oauthVal === undefined) return E.left("--oauth-issuer requires a value");
+        raw.oauthIssuer = oauthVal;
+        raw.authMode = "required";
+        break;
+      }
+      case "--oauth-audience": {
+        i++;
+        if (i >= args.length) return E.left("--oauth-audience requires a value");
+        const audVal = args[i];
+        if (audVal === undefined) return E.left("--oauth-audience requires a value");
+        raw.oauthAudience = audVal;
+        break;
+      }
+      case "--oauth-clock-skew": {
+        i++;
+        if (i >= args.length) return E.left("--oauth-clock-skew requires a value");
+        const skewVal = args[i];
+        if (skewVal === undefined) return E.left("--oauth-clock-skew requires a value");
+        const skew = parseInt(skewVal, 10);
+        if (isNaN(skew)) return E.left("--oauth-clock-skew must be a number");
+        raw.oauthClockSkew = skew;
         break;
       }
       case "--auth": {

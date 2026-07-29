@@ -103,4 +103,88 @@ describe("parseArgs", () => {
     ]);
     expect(result._tag).toBe("Left");
   });
+
+  it("parses --oauth-issuer", () => {
+    const result = parseArgs([
+      "node",
+      "index.ts",
+      "--connection-string",
+      "postgres://localhost/test",
+      "--oauth-issuer",
+      "https://auth.example.com",
+    ]);
+    expect(result._tag).toBe("Right");
+    if (result._tag === "Right") {
+      expect(result.right.oauthIssuer).toBe("https://auth.example.com");
+      expect(result.right.authMode).toBe("required");
+    }
+  });
+
+  it("returns error when --oauth-issuer has no value", () => {
+    const result = parseArgs([
+      "node",
+      "index.ts",
+      "--connection-string",
+      "postgres://localhost/test",
+      "--oauth-issuer",
+    ]);
+    expect(result._tag).toBe("Left");
+  });
+
+  it("parses --oauth-audience", () => {
+    const result = parseArgs([
+      "node",
+      "index.ts",
+      "--connection-string",
+      "postgres://localhost/test",
+      "--oauth-issuer",
+      "https://auth.example.com",
+      "--oauth-audience",
+      "my-app",
+    ]);
+    expect(result._tag).toBe("Right");
+    if (result._tag === "Right") {
+      expect(result.right.oauthAudience).toBe("my-app");
+    }
+  });
+
+  it("parses --oauth-clock-skew", () => {
+    const result = parseArgs([
+      "node",
+      "index.ts",
+      "--connection-string",
+      "postgres://localhost/test",
+      "--oauth-issuer",
+      "https://auth.example.com",
+      "--oauth-clock-skew",
+      "30",
+    ]);
+    expect(result._tag).toBe("Right");
+    if (result._tag === "Right") {
+      expect(result.right.oauthClockSkew).toBe(30);
+    }
+  });
+
+  it("returns error when --oauth-audience has no value", () => {
+    const result = parseArgs([
+      "node",
+      "index.ts",
+      "--connection-string",
+      "postgres://localhost/test",
+      "--oauth-audience",
+    ]);
+    expect(result._tag).toBe("Left");
+  });
+
+  it("returns error when --oauth-clock-skew is not a number", () => {
+    const result = parseArgs([
+      "node",
+      "index.ts",
+      "--connection-string",
+      "postgres://localhost/test",
+      "--oauth-clock-skew",
+      "abc",
+    ]);
+    expect(result._tag).toBe("Left");
+  });
 });

@@ -8,6 +8,9 @@ export const CliArgsCodec = t.type({
   schemas: t.array(t.string),
   jwtSecret: t.union([t.string, t.undefined]),
   apiKeyHeader: t.union([t.string, t.undefined]),
+  oauthIssuer: t.union([t.string, t.undefined]),
+  oauthAudience: t.union([t.string, t.undefined]),
+  oauthClockSkew: t.union([t.number, t.undefined]),
   authMode: t.union([t.literal("none"), t.literal("optional"), t.literal("required")]),
 });
 
