@@ -40,6 +40,7 @@ const testSchema = new GraphQLSchema({
 const resolverContext: ResolverContext = {
   client: {} as Client,
   model: { tables: [], views: [], foreignKeys: [], enums: {}, hasPermissions: false },
+  auth: { isAuthenticated: false },
 };
 
 let server: http.Server;

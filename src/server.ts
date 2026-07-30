@@ -1,13 +1,12 @@
 import { GraphQLSchema, graphql, parse, type OperationDefinitionNode } from "graphql";
 import { createServer, IncomingMessage, ServerResponse } from "http";
-import { existsSync, readFileSync } from "fs";
-import { dirname, join } from "path";
 import * as TE from "fp-ts/TaskEither";
 import * as E from "fp-ts/Either";
 import * as O from "fp-ts/Option";
 import { pipe } from "fp-ts/function";
 import type { ResolverContext } from "./resolver";
 import { log, logRequest } from "./logger";
+import { react_js, react_dom_js, graphiql_js, graphiql_css } from "./static-assets";
 import { authenticate, formatAuthError, type AuthConfig, type AuthContext } from "./auth";
 import { setSessionVariables } from "./permissions";
 
@@ -215,37 +214,21 @@ const handleGraphqlQuery = async (env: ServerEnv, req: IncomingMessage, res: Ser
   )();
 };
 
-function findNmdir(): string {
-  const candidates: string[] = [];
-  if (import.meta.dir) candidates.push(join(import.meta.dir, "..", "node_modules"));
-  candidates.push(join(process.cwd(), "node_modules"));
-  const binDir = process.argv[0] ? dirname(process.argv[0]) : undefined;
-  if (binDir) candidates.push(join(binDir, "node_modules"));
-  for (const dir of candidates) {
-    if (existsSync(join(dir, "react", "package.json"))) {
-      return dir;
-    }
-  }
-  return candidates[0]!;
-}
-
-const nmDir = findNmdir();
-
 const staticFiles: Record<string, { content: Buffer; contentType: string }> = {
   "/_static/react.js": {
-    content: readFileSync(join(nmDir, "react", "umd", "react.production.min.js")),
+    content: Buffer.from(react_js),
     contentType: "application/javascript",
   },
   "/_static/react-dom.js": {
-    content: readFileSync(join(nmDir, "react-dom", "umd", "react-dom.production.min.js")),
+    content: Buffer.from(react_dom_js),
     contentType: "application/javascript",
   },
   "/_static/graphiql.js": {
-    content: readFileSync(join(nmDir, "graphiql", "graphiql.min.js")),
+    content: Buffer.from(graphiql_js),
     contentType: "application/javascript",
   },
   "/_static/graphiql.css": {
-    content: readFileSync(join(nmDir, "graphiql", "graphiql.min.css")),
+    content: Buffer.from(graphiql_css),
     contentType: "text/css",
   },
 };
