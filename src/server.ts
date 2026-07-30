@@ -258,10 +258,24 @@ ReactDOM.render(React.createElement(GraphiQL, { fetcher, shouldPersistHeaders: t
 </script></body></html>`);
 };
 
+const setCorsHeaders = (res: ServerResponse) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS, QUERY");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+};
+
 export const createRequestHandler = (env: ServerEnv) => (req: IncomingMessage, res: ServerResponse) => {
   const startTime = Date.now();
   const url = pipe(O.fromNullable(req.url), O.getOrElse(() => "/"));
   const path = url.split("?")[0] ?? url;
+
+  setCorsHeaders(res);
+
+  if (req.method === "OPTIONS") {
+    res.writeHead(204);
+    res.end();
+    return;
+  }
 
   const onFinish = () => {
     const duration = Date.now() - startTime;
