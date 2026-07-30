@@ -163,7 +163,7 @@ describe("Relationship Resolution", () => {
       `{ posts { id title author { id name } comments { id body } } }`
     );
     expect(result.errors).toBeUndefined();
-    expect(result.data?.posts[0]).toEqual({
+    expect((result.data as any)?.posts[0]).toEqual({
       id: 1,
       title: "Hello World",
       author: { id: 1, name: "Alice" },
@@ -277,7 +277,7 @@ describe("OrderBy and Pagination", () => {
     );
     expect(result.errors).toBeUndefined();
     expect(result.data?.users).toHaveLength(2);
-    expect(result.data?.users[0].id).toBe(2);
+    expect((result.data as any)?.users[0].id).toBe(2);
   });
 });
 
