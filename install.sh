@@ -16,12 +16,12 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     --help|-h)
-      echo "Usage: curl -fsSL https://raw.githubusercontent.com/$REPO/main/install.sh | bash -s -- [--version vX.Y.Z] [--dir /path]"
+      echo "Usage: curl -fsSL https://raw.githubusercontent.com/$REPO/refs/heads/master/install.sh | bash -s -- [--version vX.Y.Z] [--dir /path]"
       exit 0
       ;;
     *)
       echo "Unknown option: $1"
-      echo "Usage: curl -fsSL https://raw.githubusercontent.com/$REPO/main/install.sh | bash -s -- [--version vX.Y.Z] [--dir /path]"
+      echo "Usage: curl -fsSL https://raw.githubusercontent.com/$REPO/refs/heads/master/install.sh | bash -s -- [--version vX.Y.Z] [--dir /path]"
       exit 1
       ;;
   esac

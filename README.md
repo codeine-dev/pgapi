@@ -5,13 +5,13 @@ Automatic GraphQL API from your PostgreSQL schema — no code generation require
 ## Quick install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/codeine-dev/pgapi/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/codeine-dev/pgapi/refs/heads/master/install.sh | bash
 ```
 
 Or pin a specific version:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/codeine-dev/pgapi/main/install.sh | bash -s -- --version v0.1.0
+curl -fsSL https://raw.githubusercontent.com/codeine-dev/pgapi/refs/heads/master/install.sh | bash -s -- --version v0.1.0
 ```
 
 ## Docker

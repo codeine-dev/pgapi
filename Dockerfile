@@ -8,7 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
-RUN INSTALL_SCRIPT="https://raw.githubusercontent.com/codeine-dev/pgapi/main/install.sh" && \
+RUN INSTALL_SCRIPT="https://raw.githubusercontent.com/codeine-dev/pgapi/refs/heads/master/install.sh" && \
     if [ "$VERSION" = "latest" ]; then \
       curl -fsSL "$INSTALL_SCRIPT" | bash; \
     else \
