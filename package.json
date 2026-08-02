@@ -1,6 +1,6 @@
 {
   "name": "pgapi",
-  "version": "0.0.0-alpha9",
+  "version": "0.0.0-alpha10",
   "module": "src/index.ts",
   "type": "module",
   "private": true,
