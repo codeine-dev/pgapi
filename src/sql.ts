@@ -338,9 +338,10 @@ export const buildDeleteWithFilter = (
   primaryKey: { column: string; value: unknown }
 ): { sql: string; params: unknown[] } => {
   const filterFunc = `${quoteIdentifier(schema)}.${quoteIdentifier(`${table}_${filterSuffix}`)}()`;
+  const pkCol = quoteIdentifier(primaryKey.column);
 
   return {
-    sql: `DELETE FROM ${filterFunc} WHERE ${quoteIdentifier(primaryKey.column)} = $1 RETURNING *`,
+    sql: `DELETE FROM ${quoteIdentifier(schema)}.${quoteIdentifier(table)} WHERE ${pkCol} = $1 AND ${pkCol} IN (SELECT ${pkCol} FROM ${filterFunc}) RETURNING *`,
     params: [primaryKey.value],
   };
 };

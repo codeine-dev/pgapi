@@ -331,6 +331,7 @@ describe("Permission Functions", () => {
     await permClient.query("DROP TRIGGER IF EXISTS pgapi_insert_check ON users");
     await permClient.query("DROP TRIGGER IF EXISTS pgapi_update_check ON users");
     await permClient.query("DROP FUNCTION IF EXISTS pgapi_check_trigger()");
+    await permClient.query("DROP FUNCTION IF EXISTS public.users_delete_filter()");
 
     await permClient.query(`
       CREATE OR REPLACE FUNCTION public.users_select_filter()
@@ -361,6 +362,7 @@ describe("Permission Functions", () => {
     await permClient.query("DROP FUNCTION IF EXISTS public.users_insert_check(text, text, jsonb)");
     await permClient.query("DROP FUNCTION IF EXISTS public.users_insert_check(text, text, jsonb)");
     await permClient.query("DROP FUNCTION IF EXISTS public.users_insert_check(jsonb, jsonb, jsonb)");
+    await permClient.query("DROP FUNCTION IF EXISTS public.users_delete_filter()");
     await permClient.end();
   });
 
@@ -396,6 +398,86 @@ describe("Permission Functions", () => {
         expect(user.role === "admin" || user.id === 1).toBe(true);
       }
     } finally {
+      await testClient.end();
+    }
+  });
+
+  it("delete filter allows deleting matching rows", async () => {
+    await permClient.query("DROP FUNCTION IF EXISTS public.users_delete_filter()");
+    await permClient.query(`
+      CREATE OR REPLACE FUNCTION public.users_delete_filter()
+      RETURNS SETOF public.users AS $$
+        SELECT * FROM public.users WHERE id = 3
+      $$ LANGUAGE sql STABLE
+    `);
+
+    await permClient.query("DELETE FROM comments WHERE author_id = 3");
+
+    const dbEnv = { connectionString: TEST_DB_URL };
+    const schemaResult = await readSchema(dbEnv, ["public"])();
+    if (schemaResult._tag === "Left") throw new Error("Failed to read schema");
+
+    const schema = buildSchema(schemaResult.right);
+    const testClient = new Client({ connectionString: TEST_DB_URL });
+    await testClient.connect();
+
+    try {
+      const result = await graphql({
+        schema,
+        source: `mutation { deleteUsers(id: 3) { id name } }`,
+        contextValue: {
+          client: testClient,
+          model: schemaResult.right,
+          auth: { isAuthenticated: true, user: { sub: "u1", role: "admin" } },
+        },
+      });
+
+      expect(result.errors).toBeUndefined();
+      expect(result.data?.deleteUsers).toEqual({ id: 3, name: "Charlie" });
+
+      const remaining = await testClient.query("SELECT id FROM users ORDER BY id");
+      expect(remaining.rows.map((r) => r.id)).toEqual([1, 2]);
+    } finally {
+      await permClient.query("DROP FUNCTION IF EXISTS public.users_delete_filter()");
+      await testClient.end();
+    }
+  });
+
+  it("delete filter blocks deleting non-matching rows", async () => {
+    await permClient.query("DROP FUNCTION IF EXISTS public.users_delete_filter()");
+    await permClient.query(`
+      CREATE OR REPLACE FUNCTION public.users_delete_filter()
+      RETURNS SETOF public.users AS $$
+        SELECT * FROM public.users WHERE id = 3
+      $$ LANGUAGE sql STABLE
+    `);
+
+    const dbEnv = { connectionString: TEST_DB_URL };
+    const schemaResult = await readSchema(dbEnv, ["public"])();
+    if (schemaResult._tag === "Left") throw new Error("Failed to read schema");
+
+    const schema = buildSchema(schemaResult.right);
+    const testClient = new Client({ connectionString: TEST_DB_URL });
+    await testClient.connect();
+
+    try {
+      const result = await graphql({
+        schema,
+        source: `mutation { deleteUsers(id: 1) { id name } }`,
+        contextValue: {
+          client: testClient,
+          model: schemaResult.right,
+          auth: { isAuthenticated: true, user: { sub: "u1", role: "admin" } },
+        },
+      });
+
+      expect(result.errors).toBeUndefined();
+      expect(result.data?.deleteUsers).toBeNull();
+
+      const remaining = await testClient.query("SELECT id FROM users ORDER BY id");
+      expect(remaining.rows.map((r) => r.id)).toEqual([1, 2, 3]);
+    } finally {
+      await permClient.query("DROP FUNCTION IF EXISTS public.users_delete_filter()");
       await testClient.end();
     }
   });

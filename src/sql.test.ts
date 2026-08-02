@@ -223,7 +223,9 @@ describe("buildSelectByFkWithFilter", () => {
 describe("buildDeleteWithFilter", () => {
   it("builds delete from filter function", () => {
     const result = buildDeleteWithFilter("public", "posts", "delete_filter", { column: "id", value: 1 });
-    expect(result.sql).toBe('DELETE FROM "public"."posts_delete_filter"() WHERE "id" = $1 RETURNING *');
+    expect(result.sql).toBe(
+      'DELETE FROM "public"."posts" WHERE "id" = $1 AND "id" IN (SELECT "id" FROM "public"."posts_delete_filter"()) RETURNING *'
+    );
     expect(result.params).toEqual([1]);
   });
 });
