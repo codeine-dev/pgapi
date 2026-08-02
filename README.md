@@ -11,7 +11,7 @@ curl -fsSL https://raw.githubusercontent.com/codeine-dev/pgapi/refs/heads/master
 Or pin a specific version:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/codeine-dev/pgapi/refs/heads/master/install.sh | bash -s -- --version v0.1.0
+curl -fsSL https://raw.githubusercontent.com/codeine-dev/pgapi/refs/heads/master/install.sh | bash -s -- --version v0.0.0-alpha9
 ```
 
 ## Docker
