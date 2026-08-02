@@ -2,7 +2,7 @@ import { Client } from "pg";
 import { pipe } from "fp-ts/function";
 import * as E from "fp-ts/Either";
 import * as TE from "fp-ts/TaskEither";
-import { parseArgs } from "./cli";
+import { parseArgs, USAGE } from "./cli";
 import { readSchema } from "./schema";
 import { buildSchema } from "./graphql";
 import { startServer } from "./server";
@@ -22,6 +22,11 @@ const run = (): TE.TaskEither<Error, void> => {
       E.mapLeft((msg: string) => new Error(msg)),
     )),
     TE.chain((args) => {
+      if (args.help) {
+        console.log(USAGE);
+        return TE.fromIO(() => process.exit(0));
+      }
+
       const dbEnv = { connectionString: args.connectionString };
       log.info("pgapi - Postgres GraphQL API");
 

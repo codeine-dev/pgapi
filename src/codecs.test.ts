@@ -14,6 +14,7 @@ describe("CliArgsCodec", () => {
       port: 3000,
       host: "127.0.0.1",
       console: true,
+      help: false,
       schemas: ["public"],
       jwtSecret: undefined,
       apiKeyHeader: undefined,

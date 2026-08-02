@@ -7,6 +7,10 @@ Postgres schema, and have it exposed via a GraphQL endpoint.
 
 pgapi has the following arguments:
 
+--help
+
+Print the usage text listing all available arguments and endpoints, then exit.
+
 --connection-string <string>
 
 The postgres connection string to connect to the database with ALL permissions.

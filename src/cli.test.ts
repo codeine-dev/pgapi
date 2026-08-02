@@ -7,6 +7,38 @@ describe("parseArgs", () => {
     expect(result._tag).toBe("Left");
   });
 
+  it("returns help without a connection string", () => {
+    const result = parseArgs(["node", "index.ts", "--help"]);
+    expect(result._tag).toBe("Right");
+    if (result._tag === "Right") {
+      expect(result.right.help).toBe(true);
+    }
+  });
+
+  it("returns help with short -h flag", () => {
+    const result = parseArgs(["node", "index.ts", "-h"]);
+    expect(result._tag).toBe("Right");
+    if (result._tag === "Right") {
+      expect(result.right.help).toBe(true);
+    }
+  });
+
+  it("returns help alongside other arguments", () => {
+    const result = parseArgs([
+      "node",
+      "index.ts",
+      "--connection-string",
+      "postgres://localhost/test",
+      "--port",
+      "4000",
+      "--help",
+    ]);
+    expect(result._tag).toBe("Right");
+    if (result._tag === "Right") {
+      expect(result.right.help).toBe(true);
+    }
+  });
+
   it("parses connection string", () => {
     const result = parseArgs([
       "node",

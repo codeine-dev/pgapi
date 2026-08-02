@@ -29,6 +29,8 @@ pgapi --connection-string postgres://user:pass@host:5432/db
 
 Visit http://localhost:3000/console for the GraphiQL console.
 
+Run `pgapi --help` to see all available options and endpoints.
+
 ## Development
 
 ```bash

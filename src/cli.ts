@@ -5,12 +5,37 @@ import { CliArgsCodec } from "./codecs";
 
 export type CliArgs = t.TypeOf<typeof CliArgsCodec>;
 
+export const USAGE = `pgapi - Automatic GraphQL API from your PostgreSQL schema
+
+Usage:
+  pgapi [options]
+
+Options:
+  -h, --help                      Show this help message and exit
+      --connection-string <url>   Postgres connection string (required)
+      --port <number>             Bind port (default: 3000)
+      --host <address>            Bind address (default: 127.0.0.1)
+      --console                   Serve the GraphiQL console at /console
+      --schema <name>             Expose a schema (repeatable)
+      --jwt-secret <string>       Verify HMAC JWTs with this secret
+      --api-key-header <name>     Header carrying an API key
+      --oauth-issuer <url>        OIDC issuer for Bearer token validation
+      --oauth-audience <string>   Expected JWT audience claim
+      --oauth-clock-skew <n>      Clock skew tolerance in seconds (default: 10)
+      --auth <mode>               Auth mode: none, optional, required (default: none)
+
+Endpoints:
+  /graphql                        GraphQL API
+  /console                        GraphiQL console (requires --console)
+`;
+
 export const parseArgs = (args: string[]): E.Either<string, CliArgs> => {
   const raw: Record<string, unknown> = {
     connectionString: "",
     port: 3000,
     host: "127.0.0.1",
     console: false,
+    help: false,
     schemas: [],
     jwtSecret: undefined,
     apiKeyHeader: undefined,
@@ -22,6 +47,10 @@ export const parseArgs = (args: string[]): E.Either<string, CliArgs> => {
 
   for (let i = 2; i < args.length; i++) {
     switch (args[i]) {
+      case "--help":
+      case "-h":
+        raw.help = true;
+        break;
       case "--connection-string": {
         i++;
         if (i >= args.length) return E.left("--connection-string requires a value");
@@ -119,14 +148,18 @@ export const parseArgs = (args: string[]): E.Either<string, CliArgs> => {
     }
   }
 
-  if (!raw.connectionString) {
-    return E.left("--connection-string is required");
-  }
-
   const validation = CliArgsCodec.validate(raw, []);
   if (validation._tag === "Left") {
     const errors = validation.left.map((e) => e.message).join(", ");
     return E.left(`Invalid arguments: ${errors}`);
+  }
+
+  if (raw.help) {
+    return E.right(validation.right);
+  }
+
+  if (!raw.connectionString) {
+    return E.left("--connection-string is required");
   }
 
   return E.right(validation.right);

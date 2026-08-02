@@ -5,6 +5,7 @@ export const CliArgsCodec = t.type({
   port: t.number,
   host: t.string,
   console: t.boolean,
+  help: t.boolean,
   schemas: t.array(t.string),
   jwtSecret: t.union([t.string, t.undefined]),
   apiKeyHeader: t.union([t.string, t.undefined]),

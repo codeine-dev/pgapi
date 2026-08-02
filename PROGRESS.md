@@ -1,5 +1,13 @@
 # pgapi - Progress Log
 
+## Phase 7: CLI --help (complete)
+
+- [x] `--help` / `-h` prints usage text listing all arguments and endpoints
+- [x] Help works without a connection string
+- [x] Exits 0 after printing help
+- [x] Unit tests for --help, -h, and combined with other args
+- [x] Documentation in README.md and PROJECT.md
+
 ## Phase 1: Project Setup (complete)
 
 - [x] Initialize git repo
