@@ -6,9 +6,10 @@ import * as O from "fp-ts/Option";
 import { pipe } from "fp-ts/function";
 import type { ResolverContext } from "./resolver";
 import { log, logRequest } from "./logger";
-import { react_js, react_dom_js, graphiql_js, graphiql_css } from "./static-assets";
+import { react_js, react_dom_js, graphiql_js, graphiql_css, graphql_ws_js } from "./static-assets";
 import { authenticate, formatAuthError, type AuthConfig, type AuthContext } from "./auth";
 import { setSessionVariables } from "./permissions";
+import { attachWebSocketServer } from "./websocket";
 
 export interface ServerEnv {
   host: string;
@@ -231,6 +232,10 @@ const staticFiles: Record<string, { content: Buffer; contentType: string }> = {
     content: Buffer.from(graphiql_css),
     contentType: "text/css",
   },
+  "/_static/graphql-ws.js": {
+    content: Buffer.from(graphql_ws_js),
+    contentType: "application/javascript",
+  },
 };
 
 const handleStaticRequest = (res: ServerResponse, path: string): boolean => {
@@ -252,8 +257,17 @@ const handleConsoleRequest = (res: ServerResponse): void => {
 <script src="/_static/react.js"></script>
 <script src="/_static/react-dom.js"></script>
 <script src="/_static/graphiql.js"></script>
+<script src="/_static/graphql-ws.js"></script>
 <script>
-const fetcher = GraphiQL.createFetcher({ url: '/graphql' });
+const wsClient = GraphQLWS.createClient({
+  url: '/graphql',
+  connectionParams: () => {
+    let headers = {};
+    try { headers = JSON.parse(localStorage.getItem('graphiql:headers') || '{}'); } catch (e) { /* ignore */ }
+    return { headers };
+  },
+});
+const fetcher = GraphiQL.createFetcher({ url: '/graphql', wsClient });
 ReactDOM.render(React.createElement(GraphiQL, { fetcher, shouldPersistHeaders: true }), document.getElementById('graphiql'));
 </script></body></html>`);
 };
@@ -308,9 +322,11 @@ export const startServer = (env: ServerEnv): TE.TaskEither<Error, void> =>
     () =>
       new Promise<void>((resolve, reject) => {
         const server = createServer(createRequestHandler(env));
+        attachWebSocketServer(server, env);
 
         const shutdown = () => {
           log.info("Shutting down...");
+          env.resolverContext.subscriptions?.stop().catch(() => {});
           server.close(() => {
             log.info("Server closed");
             resolve();

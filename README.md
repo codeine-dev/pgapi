@@ -31,6 +31,23 @@ Visit http://localhost:3000/console for the GraphiQL console.
 
 Run `pgapi --help` to see all available options and endpoints.
 
+## Realtime subscriptions
+
+pgapi exposes Postgres changes as GraphQL subscriptions over WebSockets at
+`/graphql` (the `graphql-transport-ws` protocol). Triggers are installed
+automatically at startup.
+
+```graphql
+subscription {
+  usersChanged(event: INSERT) {
+    id
+    name
+  }
+}
+```
+
+Subscriptions work in the GraphiQL console out of the box.
+
 ## Development
 
 ```bash

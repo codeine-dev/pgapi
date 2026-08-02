@@ -1,5 +1,19 @@
 # pgapi - Progress Log
 
+## Phase 8: Realtime Subscriptions (complete)
+
+- [x] `src/realtime.ts`: `ensureChangeTriggers()` creates `pgapi_change_notify()` trigger function + AFTER INSERT/UPDATE/DELETE triggers on all tables, publishing `{schema, table, operation, row}` to the `pgapi_changes` channel
+- [x] `SubscriptionManager`: LISTEN/UNLISTEN lifecycle, per-`schema.table` listener fan-out, tolerant of malformed/foreign payloads
+- [x] `src/graphql.ts`: `Subscription` root type with `{table}Changed` fields; `event` enum (`INSERT`/`UPDATE`/`DELETE`) and `where` filter args; in-memory row matching with query operators
+- [x] Custom `SubscriptionIterator` (interruptible async iterable) so `mapAsyncIterable` return() can cancel blocked subscriptions without hanging
+- [x] Shared cached `Where`/`OrderBy` input types across Query/Mutation/Subscription (fixes duplicate-type-name schema errors)
+- [x] `src/websocket.ts`: `graphql-transport-ws` protocol server at `/graphql` (connection_init auth → `connection_ack`/`connection_error` + 4401, subscribe/complete/error/next, ping keepalive every 30s, close 1002 on invalid JSON, session variables set for authenticated subscriptions)
+- [x] Server startup wiring: wss attached to HTTP server; manager `start()`/`stop()` lifecycle in `startServer` and `index.ts`
+- [x] GraphiQL console: bundled `graphql-ws` client (`scripts/graphql-ws-entry.ts`, embedded at build via `embed-assets.ts`), `wsClient` passed to `createFetcher`
+- [x] Unit tests: realtime (5), schema subscription generation, subscription resolvers, websocket protocol + auth, graphql-ws static asset (136 total at completion of phase, typecheck clean)
+- [x] Integration tests (28): subscription delivery of real INSERT/DELETE via triggers against live Postgres (`examples/test-schema.sql` fixture; `PGAPI_TEST_DB_URL` env override)
+- [x] Documentation in README.md and PROJECT.md
+
 ## Phase 7: CLI --help (complete)
 
 - [x] `--help` / `-h` prints usage text listing all arguments and endpoints

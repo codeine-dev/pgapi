@@ -2,14 +2,15 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { Client } from "pg";
 import { readSchema } from "./schema";
 import { buildSchema } from "./graphql";
-import { graphql, GraphQLSchema } from "graphql";
+import { graphql, GraphQLSchema, subscribe, parse } from "graphql";
 import { createClient } from "./db";
 import * as TE from "fp-ts/TaskEither";
 import { pipe } from "fp-ts/function";
 import { authenticate, type AuthConfig } from "./auth";
 import { ensureCheckTriggers } from "./permissions";
+import { ensureChangeTriggers, SubscriptionManager } from "./realtime";
 
-const TEST_DB_URL = "postgres://postgres:postgres@localhost:5432/postgres";
+const TEST_DB_URL = process.env.PGAPI_TEST_DB_URL ?? "postgres://postgres:postgres@localhost:5432/postgres";
 
 interface TestContext {
   client: Client;
@@ -535,6 +536,97 @@ describe("Permission Functions", () => {
       await testClient.query("DELETE FROM users WHERE name = 'allowed'");
     } finally {
       await testClient.end();
+    }
+  });
+});
+
+describe("Subscriptions", () => {
+  it("delivers database changes to GraphQL subscriptions", async () => {
+    const dbEnv = { connectionString: TEST_DB_URL };
+    const schemaResult = await readSchema(dbEnv, ["public"])();
+    if (schemaResult._tag === "Left") throw new Error("Failed to read schema");
+
+    const schema = buildSchema(schemaResult.right);
+    const subClient = new Client({ connectionString: TEST_DB_URL });
+    await subClient.connect();
+    await ensureChangeTriggers(subClient, schemaResult.right.tables);
+
+    const manager = new SubscriptionManager(subClient);
+    await manager.start();
+
+    try {
+      const iterator = (await subscribe({
+        schema,
+        document: parse(`subscription { usersChanged { id name } }`),
+        contextValue: {
+          client: ctx.client,
+          model: schemaResult.right,
+          auth: { isAuthenticated: false },
+          subscriptions: manager,
+        },
+      })) as AsyncIterableIterator<{ data?: { usersChanged?: { id: number; name: string } }; errors?: unknown }>;
+
+      const nextPromise = iterator.next();
+      await ctx.client.query(
+        "INSERT INTO users (name, email, role) VALUES ('Zed', 'zed@test.com', 'user') RETURNING id"
+      );
+
+      const { done, value } = await nextPromise;
+      expect(done).toBe(false);
+      expect(value.errors).toBeUndefined();
+      expect(value.data?.usersChanged?.name).toBe("Zed");
+      expect(value.data?.usersChanged?.id).toEqual(expect.any(Number));
+
+      await iterator.return?.();
+    } finally {
+      await manager.stop();
+      await subClient.end();
+      await ctx.client.query("DELETE FROM users WHERE name = 'Zed'");
+    }
+  });
+
+  it("filters subscription events by operation", async () => {
+    const dbEnv = { connectionString: TEST_DB_URL };
+    const schemaResult = await readSchema(dbEnv, ["public"])();
+    if (schemaResult._tag === "Left") throw new Error("Failed to read schema");
+
+    const schema = buildSchema(schemaResult.right);
+    const subClient = new Client({ connectionString: TEST_DB_URL });
+    await subClient.connect();
+    await ensureChangeTriggers(subClient, schemaResult.right.tables);
+
+    const manager = new SubscriptionManager(subClient);
+    await manager.start();
+
+    try {
+      const iterator = (await subscribe({
+        schema,
+        document: parse(`subscription { usersChanged(event: DELETE) { id } }`),
+        contextValue: {
+          client: ctx.client,
+          model: schemaResult.right,
+          auth: { isAuthenticated: false },
+          subscriptions: manager,
+        },
+      })) as AsyncIterableIterator<{ data?: { usersChanged?: { id: number } }; errors?: unknown }>;
+
+      const insertId = await ctx.client.query(
+        "INSERT INTO users (name, email, role) VALUES ('Yvonne', 'yvonne@test.com', 'user') RETURNING id"
+      );
+      const insertIdValue = insertId.rows[0].id as number;
+
+      const nextPromise = iterator.next();
+      await ctx.client.query("DELETE FROM users WHERE id = $1", [insertIdValue]);
+
+      const { done, value } = await nextPromise;
+      expect(done).toBe(false);
+      expect(value.errors).toBeUndefined();
+      expect(value.data?.usersChanged?.id).toBe(insertIdValue);
+
+      await iterator.return?.();
+    } finally {
+      await manager.stop();
+      await subClient.end();
     }
   });
 });

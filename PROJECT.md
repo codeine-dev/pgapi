@@ -230,6 +230,47 @@ When no authenticated user is present, both are set to `''`.
 
 Only define the functions you need. A missing function means no restriction for that operation.
 
+## Subscriptions
+
+pgapi exposes realtime changes as GraphQL subscriptions, powered by Postgres `LISTEN`/`NOTIFY`.
+
+### How It Works
+
+1. **Triggers** — On startup, pgapi creates a `pgapi_change_notify()` trigger function and an AFTER INSERT/UPDATE/DELETE trigger on every table. The trigger publishes a JSON payload (`schema`, `table`, `operation`, `row`) to the `pgapi_changes` channel via `pg_notify`.
+2. **Listener** — pgapi runs `LISTEN "pgapi_changes"` on its database connection and fans each notification out to the subscriptions that match `schema.table`.
+3. **Transport** — Subscriptions are delivered over WebSockets at `/graphql` using the `graphql-transport-ws` subprotocol. Queries and mutations are also accepted over the same socket.
+
+### Subscription Fields
+
+For each table, pgapi generates a field named `{table}Changed`:
+
+```graphql
+subscription {
+  usersChanged(event: INSERT, where: { name_like: "%a%" }) {
+    id
+    name
+  }
+}
+```
+
+| Argument | Type | Description |
+|----------|------|-------------|
+| `event` | `INSERT` \| `UPDATE` \| `DELETE` | Only receive matching operations. Omit for all. |
+| `where` | the table's `Where` input | Only receive rows matching the conditions (same operators as queries: `_eq`, `_neq`, `_gt`, `_gte`, `_lt`, `_lte`, `_like`, `_in`). |
+
+The returned payload is the row (`id`, `name`, ...). The GraphiQL console at `/console` includes a bundled `graphql-ws` client, so subscriptions work there out of the box.
+
+### WebSocket Protocol
+
+- URL: `ws://<host>:<port>/graphql`
+- Subprotocol: `graphql-transport-ws` (the protocol implemented by the `graphql-ws` npm package)
+- Authentication mirrors HTTP: credentials are sent in the `connection_init` payload as `{ headers: { authorization: "Bearer ..." } }`. Unauthorized connections receive `connection_error` and close code `4401`.
+- Keepalive pings are sent every 30 seconds.
+
+### Note
+
+Subscription events are produced by database writes, not by pgapi mutations specifically. Any `INSERT`/`UPDATE`/`DELETE` against a table — from any client — emits an event.
+
 ## OAuth 2.0 / OpenID Connect Authentication
 
 When you start pgapi with `--oauth-issuer <URL>`, it performs OpenID Connect Discovery to obtain the provider's JWKS (JSON Web Key Set) and validates every incoming Bearer token against it.

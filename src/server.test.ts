@@ -259,6 +259,7 @@ describe("console and static files", () => {
     expect(res.data).toContain("/_static/react.js");
     expect(res.data).toContain("/_static/react-dom.js");
     expect(res.data).toContain("/_static/graphiql.css");
+    expect(res.data).toContain("/_static/graphql-ws.js");
   });
 
   it("serves react.js static file", async () => {
@@ -287,6 +288,13 @@ describe("console and static files", () => {
     expect(res.status).toBe(200);
     expect(res.headers["content-type"]).toBe("text/css");
     expect(res.data).toContain("graphiql");
+  });
+
+  it("serves graphql-ws.js static file", async () => {
+    const res = await getText("/_static/graphql-ws.js");
+    expect(res.status).toBe(200);
+    expect(res.headers["content-type"]).toBe("application/javascript");
+    expect(res.data.length).toBeGreaterThan(1000);
   });
 
   it("returns 404 for unknown static file", async () => {

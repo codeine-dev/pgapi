@@ -16,4 +16,16 @@ for (const [name, filePath] of Object.entries(files)) {
   parts.push(`export const ${name} = Buffer.from("${content.toString("base64")}", "base64");`);
 }
 
+const wsBundle = await Bun.build({
+  entrypoints: [join(import.meta.dir, "graphql-ws-entry.ts")],
+  format: "iife",
+  minify: true,
+  target: "browser",
+});
+if (!wsBundle.success) throw new Error("Failed to bundle graphql-ws");
+const wsOutput = wsBundle.outputs[0];
+if (!wsOutput) throw new Error("graphql-ws bundle produced no output");
+const wsCode: string = await wsOutput.text();
+parts.push(`export const graphql_ws_js = Buffer.from("${Buffer.from(wsCode).toString("base64")}", "base64");`);
+
 writeFileSync(join(import.meta.dir, "..", "src", "static-assets.ts"), parts.join("\n") + "\n");

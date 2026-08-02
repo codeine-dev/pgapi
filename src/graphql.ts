@@ -17,6 +17,7 @@ import {
 } from "graphql";
 import type { SchemaModel, Table, Column, ForeignKey } from "./schema";
 import type { ResolverContext } from "./resolver";
+import type { ChangeEvent, ChangeOperation, SubscriptionManager } from "./realtime";
 import {
   buildSelect,
   buildSelectByFk,
@@ -146,6 +147,25 @@ const buildOrderByInputType = (table: Table): GraphQLInputObjectType => {
     name: `${capitalize(table.name)}OrderBy`,
     fields,
   });
+};
+
+const whereInputTypeCache = new Map<string, GraphQLInputObjectType>();
+const orderByInputTypeCache = new Map<string, GraphQLInputObjectType>();
+
+const getWhereInputType = (table: Table): GraphQLInputObjectType => {
+  const cached = whereInputTypeCache.get(table.name);
+  if (cached) return cached;
+  const type = buildWhereInputType(table);
+  whereInputTypeCache.set(table.name, type);
+  return type;
+};
+
+const getOrderByInputType = (table: Table): GraphQLInputObjectType => {
+  const cached = orderByInputTypeCache.get(table.name);
+  if (cached) return cached;
+  const type = buildOrderByInputType(table);
+  orderByInputTypeCache.set(table.name, type);
+  return type;
 };
 
 const buildInsertInputType = (table: Table): GraphQLInputObjectType => {
@@ -376,6 +396,136 @@ const reverseFkResolver = (fk: ForeignKey, sourceTable: Table) =>
     return result.rows;
   };
 
+const patternToRegExp = (pattern: string): RegExp => {
+  const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/%/g, ".*");
+  return new RegExp(`^${escaped}$`);
+};
+
+const compareScalar = (actual: unknown, expected: unknown): boolean => {
+  if (expected === null || expected === undefined) {
+    return actual === null || actual === undefined;
+  }
+  return String(actual) === String(expected);
+};
+
+const matchesRow = (where: Record<string, unknown>, row: Record<string, unknown>): boolean => {
+  for (const [column, condition] of Object.entries(where)) {
+    const actual = row[column];
+
+    if (condition !== null && typeof condition === "object" && "_operator" in condition) {
+      const op = (condition as { _operator: string; value: unknown })._operator;
+      const expected = (condition as { _operator: string; value: unknown }).value;
+
+      switch (op) {
+        case "neq":
+          if (compareScalar(actual, expected)) return false;
+          break;
+        case "gt":
+          if (Number(actual) <= Number(expected)) return false;
+          break;
+        case "gte":
+          if (Number(actual) < Number(expected)) return false;
+          break;
+        case "lt":
+          if (Number(actual) >= Number(expected)) return false;
+          break;
+        case "lte":
+          if (Number(actual) > Number(expected)) return false;
+          break;
+        case "in":
+          if (!Array.isArray(expected) || !expected.map((v) => String(v)).includes(String(actual))) return false;
+          break;
+        case "like":
+          if (!patternToRegExp(String(expected)).test(String(actual))) return false;
+          break;
+        default:
+          if (!compareScalar(actual, expected)) return false;
+      }
+    } else if (condition === null) {
+      if (actual !== null && actual !== undefined) return false;
+    } else if (!compareScalar(actual, condition)) {
+      return false;
+    }
+  }
+  return true;
+};
+
+const subscribeResolver = (table: Table) =>
+  (parent: unknown, args: Record<string, unknown>, ctx: ResolverContext): SubscriptionIterator => {
+    const manager = ctx.subscriptions;
+    if (!manager) {
+      throw new Error("Subscriptions are not enabled on this server");
+    }
+
+    const where = parseWhereArgs(args.where as Record<string, unknown> | undefined);
+    const event = args.event as ChangeOperation | undefined;
+
+    return new SubscriptionIterator(manager, `${table.schema}.${table.name}`, where, event);
+  };
+
+class SubscriptionIterator implements AsyncIterableIterator<Record<string, unknown>> {
+  private readonly queue: ChangeEvent[] = [];
+  private readonly pending: Array<{ resolve: (result: IteratorResult<Record<string, unknown>>) => void }> = [];
+  private closed = false;
+  private readonly unsubscribe: () => void;
+
+  constructor(
+    manager: SubscriptionManager,
+    private readonly tableKey: string,
+    private readonly where: Record<string, unknown> | undefined,
+    private readonly event: ChangeOperation | undefined
+  ) {
+    this.unsubscribe = manager.subscribe(tableKey, (change) => this.push(change));
+  }
+
+  [Symbol.asyncIterator](): AsyncIterableIterator<Record<string, unknown>> {
+    return this;
+  }
+
+  next(): Promise<IteratorResult<Record<string, unknown>>> {
+    if (this.closed) {
+      return Promise.resolve({ done: true, value: undefined });
+    }
+    const nextChange = this.queue.shift();
+    if (nextChange) {
+      return Promise.resolve({ done: false, value: nextChange.row });
+    }
+    return new Promise((resolve) => this.pending.push({ resolve }));
+  }
+
+  return(): Promise<IteratorResult<Record<string, unknown>>> {
+    this.close();
+    return Promise.resolve({ done: true, value: undefined });
+  }
+
+  throw(error: unknown): Promise<IteratorResult<Record<string, unknown>>> {
+    this.close();
+    return Promise.reject(error);
+  }
+
+  private push(change: ChangeEvent): void {
+    if (this.closed) return;
+    if (this.event !== undefined && change.operation !== this.event) return;
+    if (this.where && !matchesRow(this.where, change.row)) return;
+
+    const waiter = this.pending.shift();
+    if (waiter) {
+      waiter.resolve({ done: false, value: change.row });
+    } else {
+      this.queue.push(change);
+    }
+  }
+
+  private close(): void {
+    if (this.closed) return;
+    this.closed = true;
+    this.unsubscribe();
+    for (const waiter of this.pending.splice(0)) {
+      waiter.resolve({ done: true, value: undefined });
+    }
+  }
+}
+
 let tableTypeCache: Map<string, GraphQLObjectType> = new Map();
 
 const buildTableType = (table: Table, model: SchemaModel): GraphQLObjectType => {
@@ -442,8 +592,8 @@ const buildQueryType = (model: SchemaModel): GraphQLObjectType => {
 
   for (const table of model.tables) {
     const tableType = buildTableType(table, model);
-    const whereType = buildWhereInputType(table);
-    const orderByType = buildOrderByInputType(table);
+    const whereType = getWhereInputType(table);
+    const orderByType = getOrderByInputType(table);
     const pk = table.columns.find((c) => c.isPrimaryKey);
 
     fields[table.name] = {
@@ -471,8 +621,8 @@ const buildQueryType = (model: SchemaModel): GraphQLObjectType => {
 
   for (const view of model.views) {
     const viewType = buildTableType(view, model);
-    const whereType = buildWhereInputType(view);
-    const orderByType = buildOrderByInputType(view);
+    const whereType = getWhereInputType(view);
+    const orderByType = getOrderByInputType(view);
 
     fields[view.name] = {
       type: new GraphQLList(viewType),
@@ -537,12 +687,61 @@ const buildMutationType = (model: SchemaModel): GraphQLObjectType => {
   });
 };
 
+const buildEventEnumType = (tableName: string): GraphQLEnumType => {
+  const typeName = `${capitalize(tableName)}Event`;
+  const existing = builtEnumTypes.get(typeName);
+  if (existing) return existing;
+
+  const eventType = new GraphQLEnumType({
+    name: typeName,
+    values: {
+      INSERT: { value: "INSERT" },
+      UPDATE: { value: "UPDATE" },
+      DELETE: { value: "DELETE" },
+    },
+  });
+  builtEnumTypes.set(typeName, eventType);
+  return eventType;
+};
+
+const buildSubscriptionType = (model: SchemaModel): GraphQLObjectType | null => {
+  const fields: GraphQLFieldConfigMap<unknown, ResolverContext> = {};
+
+  for (const table of model.tables) {
+    const tableType = buildTableType(table, model);
+    const whereType = getWhereInputType(table);
+
+    fields[`${table.name}Changed`] = {
+      type: tableType,
+      description: `Subscribe to INSERT, UPDATE and DELETE changes on the ${table.name} table`,
+      args: {
+        event: { type: buildEventEnumType(table.name) },
+        where: { type: whereType },
+      },
+      resolve: (source: unknown) => source,
+      subscribe: subscribeResolver(table),
+    };
+  }
+
+  if (Object.keys(fields).length === 0) return null;
+
+  return new GraphQLObjectType({
+    name: "Subscription",
+    fields,
+  });
+};
+
 export const buildSchema = (model: SchemaModel): GraphQLSchema => {
   builtEnumTypes.clear();
   tableTypeCache = new Map();
+  whereInputTypeCache.clear();
+  orderByInputTypeCache.clear();
+
+  const subscriptionType = buildSubscriptionType(model);
 
   return new GraphQLSchema({
     query: buildQueryType(model),
     mutation: buildMutationType(model),
+    subscription: subscriptionType ?? undefined,
   });
 };

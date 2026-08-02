@@ -9,6 +9,7 @@ import { startServer } from "./server";
 import { createClient } from "./db";
 import { log, setLogLevel } from "./logger";
 import { ensureCheckTriggers } from "./permissions";
+import { ensureChangeTriggers, SubscriptionManager } from "./realtime";
 import { fetchOidcConfig, fetchJwks, refreshOidcJwks } from "./auth";
 import type { SchemaModel } from "./schema";
 import type { AuthConfig, OidcConfig } from "./auth";
@@ -58,7 +59,7 @@ const run = (): TE.TaskEither<Error, void> => {
         TE.chain(({ schemaModel, client: c }) =>
           pipe(
             TE.tryCatch(
-              () => ensureCheckTriggers(c, schemaModel.tables),
+              () => ensureCheckTriggers(c, schemaModel.tables).then(() => ensureChangeTriggers(c, schemaModel.tables)),
               (e) => (e instanceof Error ? e : new Error(String(e)))
             ),
             TE.map(() => ({ schemaModel, client: c }))
@@ -66,7 +67,17 @@ const run = (): TE.TaskEither<Error, void> => {
         ),
         TE.bind("graphqlSchema", ({ schemaModel }) => TE.right(buildSchema(schemaModel))),
         TE.bind("oauthConfig", () => fetchOidc()),
-        TE.chain(({ graphqlSchema, client: c, schemaModel, oauthConfig }) => {
+        TE.bind("subscriptionManager", ({ client: c }) =>
+          TE.tryCatch(
+            async () => {
+              const manager = new SubscriptionManager(c);
+              await manager.start();
+              return manager;
+            },
+            (e) => (e instanceof Error ? e : new Error(String(e)))
+          )
+        ),
+        TE.chain(({ graphqlSchema, client: c, schemaModel, oauthConfig, subscriptionManager }) => {
           client = c;
           const authConfig: AuthConfig = {
             jwtSecret: args.jwtSecret,
@@ -93,7 +104,7 @@ const run = (): TE.TaskEither<Error, void> => {
             port: args.port,
             schema: graphqlSchema,
             enableConsole: args.console,
-            resolverContext: { client: c, model: schemaModel, auth: { isAuthenticated: false } },
+            resolverContext: { client: c, model: schemaModel, auth: { isAuthenticated: false }, subscriptions: subscriptionManager },
             authConfig,
           });
         }),
