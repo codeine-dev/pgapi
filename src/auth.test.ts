@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll } from "vitest";
-import { authenticate, formatAuthError, refreshOidcJwks } from "./auth";
+import { authenticate, formatAuthError, refreshOidcJwks, hashKey, normalizeServiceAccounts } from "./auth";
 import type { AuthConfig, OidcConfig } from "./auth";
+import { signHs256Jwt } from "./test-support";
 
 describe("authenticate", () => {
   describe("none mode", () => {
@@ -14,14 +15,8 @@ describe("authenticate", () => {
   });
 
   describe("JWT authentication", () => {
-    const createJwt = (payload: Record<string, unknown>): string => {
-      const header = Buffer.from(JSON.stringify({ alg: "none" })).toString("base64url");
-      const body = Buffer.from(JSON.stringify(payload)).toString("base64url");
-      return `${header}.${body}.`;
-    };
-
     it("authenticates valid JWT", async () => {
-      const token = createJwt({ sub: "user123", name: "Test User" });
+      const token = signHs256Jwt({ sub: "user123", name: "Test User" }, "secret");
       const result = await authenticate(
         { jwtSecret: "secret", authMode: "required" },
         { authorization: `Bearer ${token}` }
@@ -34,10 +29,52 @@ describe("authenticate", () => {
     });
 
     it("rejects expired JWT", async () => {
-      const token = createJwt({ sub: "user123", exp: Math.floor(Date.now() / 1000) - 100 });
+      const token = signHs256Jwt({ sub: "user123", exp: Math.floor(Date.now() / 1000) - 100 }, "secret");
       const result = await authenticate(
         { jwtSecret: "secret", authMode: "required" },
         { authorization: `Bearer ${token}` }
+      );
+      expect(result._tag).toBe("Left");
+      if (result._tag === "Left") {
+        expect(result.left._tag).toBe("InvalidToken");
+      }
+    });
+
+    it("rejects JWT signed with the wrong secret", async () => {
+      const token = signHs256Jwt({ sub: "user123" }, "wrong-secret");
+      const result = await authenticate(
+        { jwtSecret: "secret", authMode: "required" },
+        { authorization: `Bearer ${token}` }
+      );
+      expect(result._tag).toBe("Left");
+      if (result._tag === "Left") {
+        expect(result.left._tag).toBe("InvalidToken");
+        expect(result.left.message).toMatch(/signature/i);
+      }
+    });
+
+    it("rejects JWT with alg=none", async () => {
+      const header = Buffer.from(JSON.stringify({ alg: "none" })).toString("base64url");
+      const body = Buffer.from(JSON.stringify({ sub: "user123" })).toString("base64url");
+      const token = `${header}.${body}.`;
+      const result = await authenticate(
+        { jwtSecret: "secret", authMode: "required" },
+        { authorization: `Bearer ${token}` }
+      );
+      expect(result._tag).toBe("Left");
+      if (result._tag === "Left") {
+        expect(result.left._tag).toBe("InvalidToken");
+        expect(result.left.message).toMatch(/none/i);
+      }
+    });
+
+    it("rejects tampered JWT payload", async () => {
+      const token = signHs256Jwt({ sub: "user123" }, "secret");
+      const [header, , sig] = token.split(".");
+      const tamperedBody = Buffer.from(JSON.stringify({ sub: "attacker" })).toString("base64url");
+      const result = await authenticate(
+        { jwtSecret: "secret", authMode: "required" },
+        { authorization: `Bearer ${header}.${tamperedBody}.${sig}` }
       );
       expect(result._tag).toBe("Left");
       if (result._tag === "Left") {
@@ -116,14 +153,8 @@ describe("authenticate", () => {
   });
 
   describe("combined authentication", () => {
-    const createJwt = (payload: Record<string, unknown>): string => {
-      const header = Buffer.from(JSON.stringify({ alg: "none" })).toString("base64url");
-      const body = Buffer.from(JSON.stringify(payload)).toString("base64url");
-      return `${header}.${body}.`;
-    };
-
     it("prefers JWT over API key", async () => {
-      const token = createJwt({ sub: "user123" });
+      const token = signHs256Jwt({ sub: "user123" }, "secret");
       const result = await authenticate(
         { jwtSecret: "secret", apiKeyHeader: "x-api-key", authMode: "required" },
         { authorization: `Bearer ${token}`, "x-api-key": "my-key" }
@@ -146,6 +177,111 @@ describe("authenticate", () => {
         expect(result.right.isAuthenticated).toBe(true);
         expect(result.right.apiKey).toBe("my-key");
       }
+    });
+  });
+
+  describe("service account authentication", () => {
+    const accounts = [{ name: "svc-a", keyHash: hashKey("secret-key-a") }];
+
+    it("authenticates a known service account key", async () => {
+      const result = await authenticate(
+        { serviceAccounts: accounts, authMode: "required" },
+        { "x-api-key": "secret-key-a" }
+      );
+      expect(result._tag).toBe("Right");
+      if (result._tag === "Right") {
+        expect(result.right.isAuthenticated).toBe(true);
+        expect(result.right.service).toEqual({ name: "svc-a" });
+      }
+    });
+
+    it("uses the default x-api-key header when none configured", async () => {
+      const result = await authenticate(
+        { serviceAccounts: accounts, authMode: "required" },
+        { "x-api-key": "secret-key-a" }
+      );
+      expect(result._tag).toBe("Right");
+    });
+
+    it("honors a custom api key header", async () => {
+      const result = await authenticate(
+        { apiKeyHeader: "x-svc-key", serviceAccounts: accounts, authMode: "required" },
+        { "x-svc-key": "secret-key-a" }
+      );
+      expect(result._tag).toBe("Right");
+      if (result._tag === "Right") {
+        expect(result.right.service).toEqual({ name: "svc-a" });
+      }
+    });
+
+    it("rejects an unknown service account key", async () => {
+      const result = await authenticate(
+        { serviceAccounts: accounts, authMode: "required" },
+        { "x-api-key": "wrong-key" }
+      );
+      expect(result._tag).toBe("Left");
+      if (result._tag === "Left") {
+        expect(result.left._tag).toBe("InvalidApiKey");
+      }
+    });
+
+    it("rejects when required and key missing", async () => {
+      const result = await authenticate(
+        { serviceAccounts: accounts, authMode: "required" },
+        {}
+      );
+      expect(result._tag).toBe("Left");
+      if (result._tag === "Left") {
+        expect(result.left._tag).toBe("AuthRequired");
+      }
+    });
+
+    it("returns unauthenticated when optional and key missing", async () => {
+      const result = await authenticate(
+        { serviceAccounts: accounts, authMode: "optional" },
+        {}
+      );
+      expect(result._tag).toBe("Right");
+      if (result._tag === "Right") {
+        expect(result.right.isAuthenticated).toBe(false);
+      }
+    });
+
+    it("matches against a pre-hashed key", async () => {
+      const hashed = [{ name: "svc-b", keyHash: hashKey("raw-key-b") }];
+      const result = await authenticate(
+        { serviceAccounts: hashed, authMode: "required" },
+        { "x-api-key": "raw-key-b" }
+      );
+      expect(result._tag).toBe("Right");
+      if (result._tag === "Right") {
+        expect(result.right.service).toEqual({ name: "svc-b" });
+      }
+    });
+
+    it("prefers JWT over a service account key", async () => {
+      const token = signHs256Jwt({ sub: "user123" }, "secret");
+      const result = await authenticate(
+        { jwtSecret: "secret", serviceAccounts: accounts, authMode: "required" },
+        { authorization: `Bearer ${token}`, "x-api-key": "secret-key-a" }
+      );
+      expect(result._tag).toBe("Right");
+      if (result._tag === "Right") {
+        expect(result.right.user).toEqual({ sub: "user123" });
+        expect(result.right.service).toBeUndefined();
+      }
+    });
+  });
+
+  describe("normalizeServiceAccounts", () => {
+    it("hashes plaintext keys", () => {
+      const normalized = normalizeServiceAccounts([{ name: "svc-a", key: "plain-key" }]);
+      expect(normalized).toEqual([{ name: "svc-a", keyHash: hashKey("plain-key") }]);
+    });
+
+    it("keeps sha256-prefixed hashes", () => {
+      const normalized = normalizeServiceAccounts([{ name: "svc-a", key: `sha256:${hashKey("raw")}` }]);
+      expect(normalized).toEqual([{ name: "svc-a", keyHash: hashKey("raw") }]);
     });
   });
 

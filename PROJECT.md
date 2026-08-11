@@ -324,6 +324,49 @@ pgapi \
 
 You can combine `--oauth-issuer` with `--api-key-header` to support both token and API key authentication. When both are present and a Bearer token is provided, OIDC validation takes priority.
 
+## Service Accounts (API Keys)
+
+pgapi supports machine-to-machine authentication via service accounts, authenticated with a static API key sent in the `x-api-key` header.
+
+### Flags
+
+--service-account <name:key-or-hash>
+
+Repeatable. Each entry defines a service account. The value is either the plaintext key or a `sha256:<hex>` hash of it. Configuring a service account implies authentication is `required` (override with `--auth optional`).
+
+--keygen
+
+Generate a cryptographically random key and print its `sha256:` hash for use with `--service-account`, then exit.
+
+### Env Variable
+
+`PGAPI_SERVICE_ACCOUNTS` accepts a JSON array of `{ "name", "key" }` objects — equivalent to repeated `--service-account name:key` flags. Plaintext keys only; use `--service-account` for hashed secrets.
+
+### Flow
+
+1. On each request, pgapi reads the `x-api-key` header.
+2. The key is compared (constant-time) against each configured account.
+3. On match, the request is authenticated as that account: the session variables `x_pgapi.sub` is set to `service:<account name>` and `x_pgapi.role` to `service`. On mismatch, the request is rejected with `401 Invalid API key`.
+
+### Example
+
+```bash
+# generate a key (prints "Key: ..." and "Hash: sha256:...")
+pgapi --keygen
+
+# serve with a hashed key so the secret never sits in config
+pgapi \
+  --connection-string postgres://localhost/mydb \
+  --service-account "deploy:sha256:51d517db0162..."
+
+# env-var equivalent with a plaintext key
+PGAPI_SERVICE_ACCOUNTS='[{"name":"deploy","key":"my-secret"}]' pgapi --connection-string postgres://localhost/mydb
+```
+
+```bash
+curl -H "x-api-key: my-secret" http://localhost:3000/graphql
+```
+
 ## Agent Guide
 
 - Language: Typescript, using "fp-ts" functional styles, "io-ts" codecs for wire types, bun package manager/runtime. The Reader-pattern will be our dependency injection. Programs should have Reader types which handle all their external actions, never pass an environment-specific client/property directly. Eg. no AWS clients, only "doAction() => TaskEither<E,A>".

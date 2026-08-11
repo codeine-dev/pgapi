@@ -1,5 +1,13 @@
 import type { Client } from "pg";
+import { createHmac } from "node:crypto";
 import { SubscriptionManager } from "./realtime";
+
+export const signHs256Jwt = (payload: Record<string, unknown>, secret: string): string => {
+  const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url");
+  const body = Buffer.from(JSON.stringify(payload)).toString("base64url");
+  const sig = createHmac("sha256", secret).update(`${header}.${body}`).digest("base64url");
+  return `${header}.${body}.${sig}`;
+};
 
 export interface FakePgClient {
   query: (sql: string) => Promise<{ rows: unknown[] }>;

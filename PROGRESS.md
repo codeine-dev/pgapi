@@ -1,5 +1,17 @@
 # pgapi - Progress Log
 
+## Phase 9: Service Accounts (complete)
+
+- [x] `src/auth.ts`: `authenticate()` falls back to API-key lookup when no Bearer token; constant-time compare of key vs configured accounts; service identity becomes `{ sub: <account name>, role: "service" }` with `isServiceAccount: true`; unmatched key rejects `Invalid API key`; service accounts short-circuit normal JWT/OIDC validation when auth mode is `required` but accounts exist
+- [x] `src/auth.ts`: `normalizeServiceAccounts()` resolves plaintext keys and `sha256:` hashed secrets into constant-time-verifiable entries; `setSessionVariables()` maps service identity to `x_pgapi.sub` = `service:<name>`, `x_pgapi.role` = `service`
+- [x] `src/cli.ts`: repeatable `--service-account <name:key-or-hash>` flag (implies auth `required`), `--keygen` flag generating a random key + `sha256:` hash, `PGAPI_SERVICE_ACCOUNTS` env var accepting a JSON array of `{name, key}`, help text entries for both flags
+- [x] `src/index.ts`: accounts merged from env + flags and wired into `AuthConfig`; effective auth mode bumps to `required` when accounts are configured without an explicit mode
+- [x] Unit tests: auth service-key success/unknown-account constant-time handling, `normalizeServiceAccounts` (plaintext, sha256 hash, precedence of flag over env, dedupe), `setSessionVariables` service identity (auth.ts + permissions.test.ts), CLI parsing (`--service-account`, `--keygen`, env var, precedence)
+- [x] Integration tests: service-key request against live Postgres (query allowed, `x_pgapi.sub` set to account name), invalid key rejected 401, missing key 401
+- [x] Manual E2E: `--keygen` → `--service-account name:sha256:<hash>` server, valid key 200, wrong key 401, no key 401; env-var accounts enforce auth the same way
+- [x] Documentation in README.md and PROJECT.md
+- [x] Typecheck clean; unit suite green. Root-caused the long-observed `is idempotent` failure in `permissions.test.ts`: it only occurred under `bun test` (Bun's own test runner), whose vitest-compat `expect` shim misreports `expect(...).resolves.not.toThrow()` as "Thrown value: undefined" when the promise resolves to `undefined` in multi-file suites. The repo's canonical runner `vitest run` (`bun run test`) passed all along. Test changed to `resolves.toBeUndefined()` so both runners pass
+
 ## Phase 8: Realtime Subscriptions (complete)
 
 - [x] `src/realtime.ts`: `ensureChangeTriggers()` creates `pgapi_change_notify()` trigger function + AFTER INSERT/UPDATE/DELETE triggers on all tables, publishing `{schema, table, operation, row}` to the `pgapi_changes` channel

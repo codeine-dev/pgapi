@@ -1,11 +1,21 @@
 import * as t from "io-ts";
 
+export const ServiceAccountCodec = t.type({
+  name: t.string,
+  key: t.string,
+});
+
+export type ServiceAccountConfig = t.TypeOf<typeof ServiceAccountCodec>;
+
+export const ServiceAccountsCodec = t.array(ServiceAccountCodec);
+
 export const CliArgsCodec = t.type({
   connectionString: t.string,
   port: t.number,
   host: t.string,
   console: t.boolean,
   help: t.boolean,
+  keygen: t.boolean,
   schemas: t.array(t.string),
   jwtSecret: t.union([t.string, t.undefined]),
   apiKeyHeader: t.union([t.string, t.undefined]),
@@ -13,6 +23,7 @@ export const CliArgsCodec = t.type({
   oauthAudience: t.union([t.string, t.undefined]),
   oauthClockSkew: t.union([t.number, t.undefined]),
   authMode: t.union([t.literal("none"), t.literal("optional"), t.literal("required")]),
+  serviceAccounts: t.array(ServiceAccountCodec),
 });
 
 export type CliArgs = t.TypeOf<typeof CliArgsCodec>;

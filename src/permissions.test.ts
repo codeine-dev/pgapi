@@ -31,6 +31,19 @@ describe("setSessionVariables", () => {
     expect(result.rows[0].role).toBe("admin");
   });
 
+  it("sets service identity for a service account", async () => {
+    const auth: AuthContext = {
+      isAuthenticated: true,
+      service: { name: "data-worker" },
+    };
+
+    await setSessionVariables(client, auth);
+
+    const result = await client.query("SELECT current_setting('x_pgapi.sub') as sub, current_setting('x_pgapi.role') as role");
+    expect(result.rows[0].sub).toBe("service:data-worker");
+    expect(result.rows[0].role).toBe("service");
+  });
+
   it("clears variables for unauthenticated request", async () => {
     const auth: AuthContext = { isAuthenticated: false };
 
@@ -110,7 +123,7 @@ describe("ensureCheckTriggers", () => {
       },
     ];
 
-    await expect(ensureCheckTriggers(client, tables)).resolves.not.toThrow();
+    await expect(ensureCheckTriggers(client, tables)).resolves.toBeUndefined();
   });
 
   it("skips tables without check functions", async () => {

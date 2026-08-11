@@ -5,6 +5,7 @@ import { createRequestHandler } from "./server";
 import { Client } from "pg";
 import type { ResolverContext } from "./resolver";
 import type { ServerEnv } from "./server";
+import { signHs256Jwt } from "./test-support";
 
 const PORT = 9876;
 const AUTH_PORT = 9877;
@@ -214,11 +215,7 @@ describe("QUERY method", () => {
   });
 
   it("accepts authenticated QUERY with valid token", async () => {
-    const token =
-      Buffer.from(JSON.stringify({ alg: "none" })).toString("base64url") +
-      "." +
-      Buffer.from(JSON.stringify({ sub: "u1" })).toString("base64url") +
-      ".";
+    const token = signHs256Jwt({ sub: "u1" }, "secret");
 
     const res = await makeRequest("QUERY", AUTH_PORT, "/graphql", { query: "{ hello }" }, {
       Authorization: `Bearer ${token}`,

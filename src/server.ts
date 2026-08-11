@@ -7,7 +7,7 @@ import { pipe } from "fp-ts/function";
 import type { ResolverContext } from "./resolver";
 import { log, logRequest } from "./logger";
 import { react_js, react_dom_js, graphiql_js, graphiql_css, graphql_ws_js } from "./static-assets";
-import { authenticate, formatAuthError, type AuthConfig, type AuthContext } from "./auth";
+import { authenticate, formatAuthError, DEFAULT_API_KEY_HEADER, type AuthConfig, type AuthContext } from "./auth";
 import { setSessionVariables } from "./permissions";
 import { attachWebSocketServer } from "./websocket";
 
@@ -272,10 +272,11 @@ ReactDOM.render(React.createElement(GraphiQL, { fetcher, shouldPersistHeaders: t
 </script></body></html>`);
 };
 
-const setCorsHeaders = (res: ServerResponse) => {
+const setCorsHeaders = (env: ServerEnv, res: ServerResponse) => {
+  const apiKeyHeader = env.authConfig.apiKeyHeader ?? DEFAULT_API_KEY_HEADER;
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS, QUERY");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.setHeader("Access-Control-Allow-Headers", `Content-Type, Authorization, ${apiKeyHeader}`);
 };
 
 export const createRequestHandler = (env: ServerEnv) => (req: IncomingMessage, res: ServerResponse) => {
@@ -283,7 +284,7 @@ export const createRequestHandler = (env: ServerEnv) => (req: IncomingMessage, r
   const url = pipe(O.fromNullable(req.url), O.getOrElse(() => "/"));
   const path = url.split("?")[0] ?? url;
 
-  setCorsHeaders(res);
+  setCorsHeaders(env, res);
 
   if (req.method === "OPTIONS") {
     res.writeHead(204);

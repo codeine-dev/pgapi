@@ -1,13 +1,13 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { Client } from "pg";
-import { readSchema } from "./schema";
+import { readSchema, type SchemaModel } from "./schema";
 import { buildSchema } from "./graphql";
 import { graphql, GraphQLSchema, subscribe, parse } from "graphql";
 import { createClient } from "./db";
 import * as TE from "fp-ts/TaskEither";
 import { pipe } from "fp-ts/function";
 import { authenticate, type AuthConfig } from "./auth";
-import { ensureCheckTriggers } from "./permissions";
+import { ensureCheckTriggers, setSessionVariables } from "./permissions";
 import { ensureChangeTriggers, SubscriptionManager } from "./realtime";
 
 const TEST_DB_URL = process.env.PGAPI_TEST_DB_URL ?? "postgres://postgres:postgres@localhost:5432/postgres";
@@ -537,6 +537,66 @@ describe("Permission Functions", () => {
     } finally {
       await testClient.end();
     }
+  });
+});
+
+describe("Service Account Permissions", () => {
+  const svcClient = new Client({ connectionString: TEST_DB_URL });
+
+  beforeAll(async () => {
+    await svcClient.connect();
+
+    await svcClient.query("DROP FUNCTION IF EXISTS public.posts_select_filter()");
+
+    await svcClient.query(`
+      CREATE OR REPLACE FUNCTION public.posts_select_filter()
+      RETURNS SETOF public.posts AS $$
+        SELECT * FROM public.posts
+        WHERE current_setting('x_pgapi.role') = 'service'
+           OR author_id::text = current_setting('x_pgapi.sub')
+      $$ LANGUAGE sql STABLE
+    `);
+  });
+
+  afterAll(async () => {
+    await svcClient.query("DROP FUNCTION IF EXISTS public.posts_select_filter()");
+    await svcClient.end();
+  });
+
+  const queryPosts = async (
+    client: Client,
+    schema: GraphQLSchema,
+    model: SchemaModel
+  ) => {
+    const result = await graphql({
+      schema,
+      source: `{ posts { id title } }`,
+      contextValue: { client, model, auth: { isAuthenticated: false } },
+    });
+    expect(result.errors).toBeUndefined();
+    return result.data?.posts as Array<{ id: number; title: string }>;
+  };
+
+  it("gives a service account full visibility as an extension of the system", async () => {
+    const dbEnv = { connectionString: TEST_DB_URL };
+    const schemaResult = await readSchema(dbEnv, ["public"])();
+    if (schemaResult._tag === "Left") throw new Error("Failed to read schema");
+
+    await setSessionVariables(svcClient, { isAuthenticated: true, service: { name: "data-worker" } });
+
+    const posts = await queryPosts(svcClient, buildSchema(schemaResult.right), schemaResult.right);
+    expect(posts).toHaveLength(3);
+  });
+
+  it("still limits a regular user to their own rows", async () => {
+    const dbEnv = { connectionString: TEST_DB_URL };
+    const schemaResult = await readSchema(dbEnv, ["public"])();
+    if (schemaResult._tag === "Left") throw new Error("Failed to read schema");
+
+    await setSessionVariables(svcClient, { isAuthenticated: true, user: { sub: "1", role: "user" } });
+
+    const posts = await queryPosts(svcClient, buildSchema(schemaResult.right), schemaResult.right);
+    expect(posts.map((p) => p.id).sort()).toEqual([1, 2]);
   });
 });
 

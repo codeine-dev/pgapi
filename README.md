@@ -48,6 +48,28 @@ subscription {
 
 Subscriptions work in the GraphiQL console out of the box.
 
+## Service accounts
+
+Authenticate machine clients with a static API key sent in the `x-api-key` header:
+
+```bash
+# generate a key + its sha256 hash
+pgapi --keygen
+
+# serve with a hashed key
+pgapi --connection-string postgres://... \
+  --service-account "deploy:sha256:51d517db0162..."
+
+# or via env var (plaintext key)
+PGAPI_SERVICE_ACCOUNTS='[{"name":"deploy","key":"my-secret"}]' pgapi --connection-string postgres://...
+```
+
+```bash
+curl -H "x-api-key: my-secret" http://localhost:3000/graphql
+```
+
+`--service-account` is repeatable for multiple accounts. See PROJECT.md for details.
+
 ## Development
 
 ```bash

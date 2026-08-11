@@ -2,7 +2,13 @@ import { Client } from "pg";
 import { pipe } from "fp-ts/function";
 import * as E from "fp-ts/Either";
 import * as TE from "fp-ts/TaskEither";
-import { parseArgs, USAGE } from "./cli";
+import {
+  parseArgs,
+  USAGE,
+  parseServiceAccountsEnv,
+  mergeServiceAccounts,
+  generateServiceAccountKey,
+} from "./cli";
 import { readSchema } from "./schema";
 import { buildSchema } from "./graphql";
 import { startServer } from "./server";
@@ -10,7 +16,7 @@ import { createClient } from "./db";
 import { log, setLogLevel } from "./logger";
 import { ensureCheckTriggers } from "./permissions";
 import { ensureChangeTriggers, SubscriptionManager } from "./realtime";
-import { fetchOidcConfig, fetchJwks, refreshOidcJwks } from "./auth";
+import { fetchOidcConfig, fetchJwks, refreshOidcJwks, normalizeServiceAccounts } from "./auth";
 import type { SchemaModel } from "./schema";
 import type { AuthConfig, OidcConfig } from "./auth";
 
@@ -25,6 +31,13 @@ const run = (): TE.TaskEither<Error, void> => {
     TE.chain((args) => {
       if (args.help) {
         console.log(USAGE);
+        return TE.fromIO(() => process.exit(0));
+      }
+
+      if (args.keygen) {
+        const { key, hash } = generateServiceAccountKey();
+        console.log(`Key:  ${key}`);
+        console.log(`Hash: sha256:${hash}`);
         return TE.fromIO(() => process.exit(0));
       }
 
@@ -52,17 +65,28 @@ const run = (): TE.TaskEither<Error, void> => {
         );
       };
 
+      const serviceAccounts = pipe(
+        parseServiceAccountsEnv(process.env),
+        E.chain((envAccounts) => mergeServiceAccounts([...envAccounts, ...args.serviceAccounts]))
+      );
+
       return pipe(
         TE.Do,
+        TE.bind("serviceAccounts", () =>
+          TE.fromEither(pipe(
+            serviceAccounts,
+            E.mapLeft((msg) => new Error(msg))
+          ))
+        ),
         TE.bind("schemaModel", () => readSchema(dbEnv, args.schemas)),
         TE.bind("client", () => createClient(dbEnv)),
-        TE.chain(({ schemaModel, client: c }) =>
+        TE.chain(({ schemaModel, client: c, serviceAccounts }) =>
           pipe(
             TE.tryCatch(
               () => ensureCheckTriggers(c, schemaModel.tables).then(() => ensureChangeTriggers(c, schemaModel.tables)),
               (e) => (e instanceof Error ? e : new Error(String(e)))
             ),
-            TE.map(() => ({ schemaModel, client: c }))
+            TE.map(() => ({ schemaModel, client: c, serviceAccounts }))
           )
         ),
         TE.bind("graphqlSchema", ({ schemaModel }) => TE.right(buildSchema(schemaModel))),
@@ -77,14 +101,24 @@ const run = (): TE.TaskEither<Error, void> => {
             (e) => (e instanceof Error ? e : new Error(String(e)))
           )
         ),
-        TE.chain(({ graphqlSchema, client: c, schemaModel, oauthConfig, subscriptionManager }) => {
+        TE.chain(({ graphqlSchema, client: c, schemaModel, oauthConfig, subscriptionManager, serviceAccounts }) => {
           client = c;
+          const effectiveAuthMode =
+            serviceAccounts.length > 0 && args.authMode === "none" ? "required" : args.authMode;
           const authConfig: AuthConfig = {
             jwtSecret: args.jwtSecret,
             apiKeyHeader: args.apiKeyHeader,
-            authMode: args.authMode,
+            authMode: effectiveAuthMode,
             oauthConfig: oauthConfig ?? undefined,
+            serviceAccounts: normalizeServiceAccounts(serviceAccounts),
           };
+
+          if (serviceAccounts.length > 0) {
+            log.info("Service accounts enabled", {
+              accounts: serviceAccounts.map((a) => a.name).join(", "),
+              header: args.apiKeyHeader ?? "x-api-key",
+            });
+          }
 
           if (oauthConfig) {
             const refreshInterval = 60 * 60 * 1000;

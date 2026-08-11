@@ -4,6 +4,11 @@ import type { Table } from "./schema";
 import { quoteIdentifier } from "./sql";
 
 export const setSessionVariables = async (client: Client, auth: AuthContext): Promise<void> => {
+  if (auth.service) {
+    await client.query(`SET "x_pgapi.sub" = ${quoteLiteral(`service:${auth.service.name}`)}`);
+    await client.query(`SET "x_pgapi.role" = ${quoteLiteral("service")}`);
+    return;
+  }
   if (auth.isAuthenticated && auth.user) {
     const sub = auth.user.sub != null ? String(auth.user.sub) : "";
     const role = auth.user.role != null ? String(auth.user.role) : "";

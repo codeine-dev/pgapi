@@ -1,3 +1,4 @@
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import * as E from "fp-ts/Either";
 import * as O from "fp-ts/Option";
 import * as TE from "fp-ts/TaskEither";
@@ -20,7 +21,32 @@ export interface AuthContext {
   isAuthenticated: boolean;
   user?: Record<string, unknown>;
   apiKey?: string;
+  service?: { name: string };
 }
+
+export interface ServiceAccountConfig {
+  name: string;
+  key: string;
+}
+
+export interface ServiceAccount {
+  name: string;
+  keyHash: string;
+}
+
+export const DEFAULT_API_KEY_HEADER = "x-api-key";
+
+export const SHA256_PREFIX = "sha256:";
+
+export const hashKey = (key: string): string => createHash("sha256").update(key, "utf8").digest("hex");
+
+export const normalizeServiceAccounts = (raw: ServiceAccountConfig[]): ServiceAccount[] =>
+  raw.map(({ name, key }) => {
+    if (key.startsWith(SHA256_PREFIX)) {
+      return { name, keyHash: key.slice(SHA256_PREFIX.length).toLowerCase() };
+    }
+    return { name, keyHash: hashKey(key) };
+  });
 
 export interface OidcConfig {
   issuer: string;
@@ -35,6 +61,7 @@ export interface AuthConfig {
   apiKeyHeader?: string;
   authMode: "none" | "optional" | "required";
   oauthConfig?: OidcConfig;
+  serviceAccounts?: ServiceAccount[];
 }
 
 type AuthError =
@@ -56,15 +83,57 @@ const extractApiKey = (headers: Record<string, string | undefined>, headerName: 
     O.filter((key) => key.length > 0)
   );
 
+const safeEqualHex = (a: string, b: string): boolean => {
+  const bufA = Buffer.from(a, "hex");
+  const bufB = Buffer.from(b, "hex");
+  if (bufA.length !== bufB.length) return false;
+  return timingSafeEqual(bufA, bufB);
+};
+
+const matchServiceAccount = (accounts: ServiceAccount[], key: string): O.Option<ServiceAccount> => {
+  const incomingHash = hashKey(key);
+  for (const account of accounts) {
+    if (safeEqualHex(incomingHash, account.keyHash)) {
+      return O.some(account);
+    }
+  }
+  return O.none;
+};
+
+const hmacAlgFor = (alg: string): string => {
+  switch (alg) {
+    case "HS256": return "sha256";
+    case "HS384": return "sha384";
+    case "HS512": return "sha512";
+    default: throw new Error(`Unsupported algorithm: ${alg}`);
+  }
+};
+
 const verifyJwt = (token: string, secret: string): E.Either<AuthError, Record<string, unknown>> =>
   E.tryCatch(
     () => {
       const parts = token.split(".");
-      if (parts.length !== 3) {
+      if (parts.length !== 3 || !parts[0] || !parts[1]) {
         throw new Error("Invalid JWT format");
       }
 
-      const payload = JSON.parse(Buffer.from(parts[1] ?? "", "base64url").toString());
+      const header = JSON.parse(Buffer.from(parts[0], "base64url").toString()) as Record<string, unknown>;
+
+      if (header.alg === "none") {
+        throw new Error("Invalid algorithm: none");
+      }
+
+      if (typeof header.alg !== "string" || !["HS256", "HS384", "HS512"].includes(header.alg)) {
+        throw new Error(`Unsupported algorithm: ${header.alg}`);
+      }
+
+      const sig = Buffer.from(parts[2] ?? "", "base64url");
+      const expected = createHmac(hmacAlgFor(header.alg), secret).update(`${parts[0]}.${parts[1]}`).digest();
+      if (sig.length !== expected.length || !timingSafeEqual(sig, expected)) {
+        throw new Error("Invalid signature");
+      }
+
+      const payload = JSON.parse(Buffer.from(parts[1], "base64url").toString()) as Record<string, unknown>;
       const now = Math.floor(Date.now() / 1000);
 
       const exp = payload.exp as number | undefined;
@@ -416,9 +485,22 @@ export const authenticate = async (
     }
   }
 
-  if (config.apiKeyHeader) {
-    const apiKeyOption = extractApiKey(headers, config.apiKeyHeader);
+  const hasServiceAccounts = (config.serviceAccounts?.length ?? 0) > 0;
+
+  if (hasServiceAccounts || config.apiKeyHeader) {
+    const headerName = config.apiKeyHeader ?? DEFAULT_API_KEY_HEADER;
+    const apiKeyOption = extractApiKey(headers, headerName);
     if (O.isSome(apiKeyOption)) {
+      if (hasServiceAccounts) {
+        const account = matchServiceAccount(config.serviceAccounts ?? [], apiKeyOption.value);
+        if (O.isNone(account)) {
+          return E.left({ _tag: "InvalidApiKey", message: "Invalid API key" });
+        }
+        return E.right({
+          isAuthenticated: true,
+          service: { name: account.value.name },
+        });
+      }
       return E.right({
         isAuthenticated: true,
         apiKey: apiKeyOption.value,

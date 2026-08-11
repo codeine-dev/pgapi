@@ -7,7 +7,7 @@ import { createRequestHandler, type ServerEnv } from "./server";
 import { attachWebSocketServer } from "./websocket";
 import { buildSchema } from "./graphql";
 import type { SchemaModel } from "./schema";
-import { createFakePgClient, createFakeSubscriptionManager, publishChange } from "./test-support";
+import { createFakePgClient, createFakeSubscriptionManager, publishChange, signHs256Jwt } from "./test-support";
 
 const PORT = 9887;
 const AUTH_PORT = 9888;
@@ -255,11 +255,7 @@ describe("graphql-transport-ws protocol", () => {
 });
 
 describe("websocket authentication", () => {
-  const validToken = () => {
-    const header = Buffer.from(JSON.stringify({ alg: "none" })).toString("base64url");
-    const payload = Buffer.from(JSON.stringify({ sub: "u1" })).toString("base64url");
-    return `${header}.${payload}.`;
-  };
+  const validToken = () => signHs256Jwt({ sub: "u1" }, "secret");
 
   it("rejects a connection without credentials when auth is required", async () => {
     const client = createWsClient(AUTH_PORT);
